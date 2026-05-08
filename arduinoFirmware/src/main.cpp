@@ -97,7 +97,6 @@ void checkSafetyTimeout();
 void sendHeartbeat();
 void setBothChannels(int pct);
 void setChannel(int channel, int pct);
-int gammaCorrect(int pct);
 int validateBrightness(char *brightnessStr);
 void sendCommandAck(char *behavior, int brightness);
 void sendResponse(const char *message);
@@ -343,41 +342,10 @@ void processCommand(char *command)
 // BRIGHTNESS CONTROL (0–100 %)
 // =============================================================================
 
-/**
- * Gamma correction for perceptual linearity.
- *
- * The human eye follows a power-law response (~gamma 2.2).
- * Without correction, 90%→70% feels barely noticeable while 70%→90% feels
- * dramatic, because setPower() is linear in electrical power, not perceived brightness.
- *
- * Formula: physical = (perceived / 100) ^ 2.2 * 100
- * Approximated with integer math using a pre-computed 101-entry lookup table.
- */
-static const uint8_t GAMMA_TABLE[101] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 1,                 // 0-9
-    1, 1, 1, 1, 2, 2, 2, 2, 3, 3,                 // 10-19
-    3, 4, 4, 5, 5, 6, 6, 7, 8, 8,                 // 20-29
-    9, 10, 11, 11, 12, 13, 14, 15, 16, 17,        // 30-39
-    18, 19, 21, 22, 23, 25, 26, 27, 29, 30,       // 40-49
-    32, 34, 35, 37, 39, 41, 43, 45, 47, 49,       // 50-59
-    51, 53, 56, 58, 60, 63, 65, 68, 70, 73,       // 60-69
-    76, 79, 81, 84, 87, 90, 93, 96, 100, 100, 100 // 70-80 (clamped)
-};
-
-int gammaCorrect(int pct)
-{
-    if (pct <= 0)
-        return 0;
-    if (pct >= 100)
-        return 100;
-    return (int)GAMMA_TABLE[pct];
-}
-
 void setBothChannels(int pct)
 {
-    int physical = gammaCorrect(pct);
-    dimmer1.setPower(physical);
-    dimmer2.setPower(physical);
+    dimmer1.setPower(pct);
+    dimmer2.setPower(pct);
     currentBrightness_CH1 = pct;
     currentBrightness_CH2 = pct;
     targetBrightness_CH1 = pct;
@@ -386,16 +354,15 @@ void setBothChannels(int pct)
 
 void setChannel(int channel, int pct)
 {
-    int physical = gammaCorrect(pct);
     if (channel == 1)
     {
-        dimmer1.setPower(physical);
+        dimmer1.setPower(pct);
         currentBrightness_CH1 = pct;
         targetBrightness_CH1 = pct;
     }
     else if (channel == 2)
     {
-        dimmer2.setPower(physical);
+        dimmer2.setPower(pct);
         currentBrightness_CH2 = pct;
         targetBrightness_CH2 = pct;
     }
@@ -425,7 +392,7 @@ void updateFading()
             currentBrightness_CH1 = targetBrightness_CH1;
         }
 
-        dimmer1.setPower(gammaCorrect(currentBrightness_CH1));
+        dimmer1.setPower(currentBrightness_CH1);
     }
 
     // Channel 2
@@ -440,7 +407,7 @@ void updateFading()
             currentBrightness_CH2 = targetBrightness_CH2;
         }
 
-        dimmer2.setPower(gammaCorrect(currentBrightness_CH2));
+        dimmer2.setPower(currentBrightness_CH2);
     }
 
     if (DEBUG_MODE && (currentBrightness_CH1 != targetBrightness_CH1 ||

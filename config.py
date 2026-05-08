@@ -69,7 +69,7 @@ DEFAULT_ACTIVITY: str = "Idle"
 DIMMER_ENABLED: bool = True          # Set False to disable without changing code
 DIMMER_PORT: str = "/dev/ttyACM0"   # Already working per your output
 DIMMER_BAUD: int = 9600
-DIMMER_COMMIT_DELAY: float = 3.0    # Seconds a new activity must persist before dimmer changes
+DIMMER_COMMIT_DELAY: float = 1.5    # Seconds a new activity must persist before dimmer changes
 
 # Brightness level (0-100) sent to the Arduino per activity.
 # Adjust these to suit your lighting environment.
