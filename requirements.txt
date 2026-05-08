@@ -5,3 +5,4 @@ openai>=1.30.0
 scikit-image>=0.21.0
 pyserial>=3.5
 python-dotenv>=1.0.0
+picamera2
