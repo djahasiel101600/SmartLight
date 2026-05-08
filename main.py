@@ -266,7 +266,7 @@ def _draw_overlay(
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
-def run(headless: bool = False) -> None:
+def run(headless: bool = config.HEADLESS) -> None:
     logger = StructuredLogger()
     logger.log_startup()
 
@@ -383,9 +383,17 @@ def run(headless: bool = False) -> None:
                     lux=_lux,
                     dimmer_pct=_dim_pct,
                 )
-                cv2.imshow("SmartLight — Activity Recognition", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+                try:
+                    cv2.imshow("SmartLight — Activity Recognition", frame)
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord("q"):
+                        break
+                except cv2.error as _disp_err:
+                    logger.log_warning(
+                        f"Display unavailable ({_disp_err}). "
+                        "Set HEADLESS=True in config.py or run with --headless."
+                    )
+                    headless = True  # stop retrying every frame
 
     except KeyboardInterrupt:
         pass
