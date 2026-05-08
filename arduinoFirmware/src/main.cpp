@@ -1,63 +1,67 @@
 /*
   RobotDyn 2-Channel AC Light Dimmer Control - RPi4 Optimized
 
-  Controls RobotDyn 2-Channel AC Light Dimmer Module via PWM signals.
-  Optimized for reliable communication with Raspberry Pi 4.
+  Controls RobotDyn 2-Channel AC Light Dimmer Module using zero-crossing
+  synchronized TRIAC triggering via the RBDimmer library.
+  Simple analogWrite() cannot produce smooth AC dimming — the TRIAC must be
+  fired at a precise delay after each AC zero-crossing.
 
-  Communication Protocol (same as original):
+  *** REQUIRES: RBDimmer library ***
+  Arduino IDE → Sketch → Include Library → Manage Libraries → search "RBDimmer"
+
+  Communication Protocol (unchanged):
   - Format: "BEHAVIOR:BRIGHTNESS\n"
   - Example: "idle:30\n" → 30% brightness
-  - Response: "OK: behavior @ brightness%" or "ERROR: ..."
+  - Response: "OK:behavior:brightness" or "ERROR:..."
 
   Hardware:
   - Arduino UNO R3
   - RobotDyn 2-Channel AC Light Dimmer Module
   - Connections:
-    * Dimmer CH1 (PWM) → Pin 9
-    * Dimmer CH2 (PWM) → Pin 10
-    * GND → GND
-
-  RPi4 Integration Features:
-  - Enhanced error recovery
-  - Command queue protection
-  - Non-blocking operations
-  - Detailed status reporting
+    * Dimmer Z-C  → Pin 2  (interrupt pin — REQUIRED for smooth ZC-sync dimming)
+    * Dimmer CH1  → Pin 9
+    * Dimmer CH2  → Pin 10
+    * GND         → GND
 
   Author: Optimized for Ambient Lighting Project
   Date: 2026-05-08
 */
 
+#include <RBDimmer.h>
+
 // =============================================================================
 // CONFIGURATION
 // =============================================================================
 
-// PWM Pins
+// Pins
+const int ZC_PIN = 2; // Zero-cross detection — must be interrupt-capable (pin 2 or 3 on UNO)
 const int PWM_PIN_CH1 = 9;
 const int PWM_PIN_CH2 = 10;
-
-// Status LED
 const int STATUS_LED = 13;
 
 // Serial communication
 const int SERIAL_BAUD = 9600;
-const int BUFFER_SIZE = 64; // Increased for longer behavior names
-
-// Brightness mapping (0-100% → 0-255 PWM)
-const int PWM_MAX = 255;
-const int PWM_MIN = 0;
+const int BUFFER_SIZE = 64;
 
 // Timing configuration
-const unsigned long COMMAND_TIMEOUT = 60000;   // 60 seconds timeout (activity can be stable for a long time)
-const unsigned long HEARTBEAT_INTERVAL = 1000; // Send heartbeat every 1 second
-const unsigned long SERIAL_TIMEOUT = 100;      // Serial read timeout (ms)
+const unsigned long COMMAND_TIMEOUT = 60000;   // 60 s — activity can be stable for a long time
+const unsigned long HEARTBEAT_INTERVAL = 1000; // heartbeat interval (ms)
+const unsigned long SERIAL_TIMEOUT_MS = 100;   // serial read timeout (ms)
 
-// Fade configuration
-const bool ENABLE_FADING = true; // Enable smooth transitions
-const int FADE_STEPS = 20;       // Number of fade steps
-const int FADE_DELAY_MS = 15;    // Delay between steps (ms)
+// Fade configuration (operates in 0-100 % space)
+const bool ENABLE_FADING = true;
+const int FADE_STEP_SIZE = 2; // % per tick — increase to fade faster
+const int FADE_DELAY_MS = 20; // ms per tick → 50 ticks × 2% = 0→100% in ~1 s
 
 // Debug mode (disable for production)
 const bool DEBUG_MODE = false;
+
+// =============================================================================
+// DIMMER OBJECTS
+// =============================================================================
+
+dimmerLamp dimmer1(PWM_PIN_CH1, ZC_PIN);
+dimmerLamp dimmer2(PWM_PIN_CH2, ZC_PIN);
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -66,6 +70,7 @@ const bool DEBUG_MODE = false;
 char serialBuffer[BUFFER_SIZE];
 int bufferIndex = 0;
 
+// Brightness in percentage (0–100) — no raw PWM values used
 int currentBrightness_CH1 = 0;
 int currentBrightness_CH2 = 0;
 int targetBrightness_CH1 = 0;
@@ -73,11 +78,8 @@ int targetBrightness_CH2 = 0;
 
 unsigned long lastCommandTime = 0;
 unsigned long lastHeartbeatTime = 0;
-bool timeoutEnabled = true; // Can be disabled by RPi
-
-// Command queue protection
+bool timeoutEnabled = true;
 bool processingCommand = false;
-unsigned long lastResponseTime = 0;
 
 // =============================================================================
 // SETUP
@@ -85,25 +87,75 @@ unsigned long lastResponseTime = 0;
 
 void setup()
 {
-    // Initialize serial with timeout protection
     Serial.begin(SERIAL_BAUD);
-    Serial.setTimeout(SERIAL_TIMEOUT);
+    Serial.setTimeout(SERIAL_TIMEOUT_MS);
 
-    // Configure pins
-    pinMode(PWM_PIN_CH1, OUTPUT);
-    pinMode(PWM_PIN_CH2, OUTPUT);
     pinMode(STATUS_LED, OUTPUT);
 
-    // Initialize to safe state
-    analogWrite(PWM_PIN_CH1, 0);
-    analogWrite(PWM_PIN_CH2, 0);
+    // Initialize dimmers — library attaches ZC interrupt on ZC_PIN internally
+    dimmer1.begin(NORMAL_MODE, ON);
+    dimmer2.begin(NORMAL_MODE, ON);
+    dimmer1.setPower(0);
+    dimmer2.setPower(0);
 
-    // Send ready signal with device info
+    currentBrightness_CH1 = 0;
+    currentBrightness_CH2 = 0;
+    targetBrightness_CH1 = 0;
+    targetBrightness_CH2 = 0;
+
     delay(100); // Allow Serial to stabilize
     sendReadySignal();
 
+    // POST: slowly ramp lights 0 → 100% then back to 0%
+    runLightPOST();
+
     // Startup blink sequence
     statusBlink(3);
+}
+
+// =============================================================================
+// POST (POWER-ON SELF-TEST)
+// =============================================================================
+
+/**
+ * Smooth ramp 0% → 100% → 0% using ZC-synchronized dimmer library.
+ * 1% step every POST_STEP_MS ms → ramp-up ~1.5 s, hold 0.5 s, ramp-down ~1.5 s.
+ * With ZC-sync this produces a perfectly smooth analogue-looking fade.
+ */
+void runLightPOST()
+{
+    const int POST_STEP_MS = 15; // ms per 1% step — tune for desired speed
+
+    Serial.println("POST: Light ramp test started");
+
+    // Ramp up: 0% → 100%
+    for (int pct = 0; pct <= 100; pct++)
+    {
+        dimmer1.setPower(pct);
+        dimmer2.setPower(pct);
+        currentBrightness_CH1 = pct;
+        currentBrightness_CH2 = pct;
+        delay(POST_STEP_MS);
+    }
+
+    // Brief hold at full brightness
+    delay(500);
+
+    // Ramp down: 100% → 0%
+    for (int pct = 100; pct >= 0; pct--)
+    {
+        dimmer1.setPower(pct);
+        dimmer2.setPower(pct);
+        currentBrightness_CH1 = pct;
+        currentBrightness_CH2 = pct;
+        delay(POST_STEP_MS);
+    }
+
+    // Sync target state
+    targetBrightness_CH1 = 0;
+    targetBrightness_CH2 = 0;
+
+    Serial.println("POST: Light ramp test complete");
 }
 
 // =============================================================================
@@ -233,19 +285,17 @@ void processCommand(char *command)
         return;
     }
 
-    // Apply brightness
-    int pwmValue = map(brightness, 0, 100, PWM_MIN, PWM_MAX);
-
+    // Apply brightness directly in % — no map() needed with ZC-sync library
     if (ENABLE_FADING)
     {
         // Set target for smooth fading
-        targetBrightness_CH1 = pwmValue;
-        targetBrightness_CH2 = pwmValue;
+        targetBrightness_CH1 = brightness;
+        targetBrightness_CH2 = brightness;
     }
     else
     {
         // Immediate change
-        setBothChannels(pwmValue);
+        setBothChannels(brightness);
     }
 
     // Send success response
@@ -254,7 +304,7 @@ void processCommand(char *command)
     // Log behavior change
     if (DEBUG_MODE)
     {
-        logBrightnessChange(behavior, brightness, pwmValue);
+        logBrightnessChange(behavior, brightness);
     }
 
     statusBlink(1);
@@ -262,33 +312,32 @@ void processCommand(char *command)
 }
 
 // =============================================================================
-// BRIGHTNESS CONTROL
+// BRIGHTNESS CONTROL (0–100 %)
 // =============================================================================
 
-void setBothChannels(int pwmValue)
+void setBothChannels(int pct)
 {
-    analogWrite(PWM_PIN_CH1, pwmValue);
-    analogWrite(PWM_PIN_CH2, pwmValue);
-
-    currentBrightness_CH1 = pwmValue;
-    currentBrightness_CH2 = pwmValue;
-    targetBrightness_CH1 = pwmValue;
-    targetBrightness_CH2 = pwmValue;
+    dimmer1.setPower(pct);
+    dimmer2.setPower(pct);
+    currentBrightness_CH1 = pct;
+    currentBrightness_CH2 = pct;
+    targetBrightness_CH1 = pct;
+    targetBrightness_CH2 = pct;
 }
 
-void setChannel(int channel, int pwmValue)
+void setChannel(int channel, int pct)
 {
     if (channel == 1)
     {
-        analogWrite(PWM_PIN_CH1, pwmValue);
-        currentBrightness_CH1 = pwmValue;
-        targetBrightness_CH1 = pwmValue;
+        dimmer1.setPower(pct);
+        currentBrightness_CH1 = pct;
+        targetBrightness_CH1 = pct;
     }
     else if (channel == 2)
     {
-        analogWrite(PWM_PIN_CH2, pwmValue);
-        currentBrightness_CH2 = pwmValue;
-        targetBrightness_CH2 = pwmValue;
+        dimmer2.setPower(pct);
+        currentBrightness_CH2 = pct;
+        targetBrightness_CH2 = pct;
     }
 }
 
@@ -296,52 +345,48 @@ void updateFading()
 {
     static unsigned long lastFadeUpdate = 0;
 
-    if (millis() - lastFadeUpdate < FADE_DELAY_MS)
+    if (millis() - lastFadeUpdate < (unsigned long)FADE_DELAY_MS)
     {
         return;
     }
 
     lastFadeUpdate = millis();
-    bool updated = false;
 
-    // Update channel 1
+    // Channel 1
     if (currentBrightness_CH1 != targetBrightness_CH1)
     {
-        int step = (targetBrightness_CH1 > currentBrightness_CH1) ? max(1, (targetBrightness_CH1 - currentBrightness_CH1) / FADE_STEPS) : min(-1, (targetBrightness_CH1 - currentBrightness_CH1) / FADE_STEPS);
-
+        int step = (targetBrightness_CH1 > currentBrightness_CH1) ? FADE_STEP_SIZE : -FADE_STEP_SIZE;
         currentBrightness_CH1 += step;
 
         // Clamp to target
-        if ((step > 0 && currentBrightness_CH1 >= targetBrightness_CH1) ||
-            (step < 0 && currentBrightness_CH1 <= targetBrightness_CH1))
+        if ((step > 0 && currentBrightness_CH1 > targetBrightness_CH1) ||
+            (step < 0 && currentBrightness_CH1 < targetBrightness_CH1))
         {
             currentBrightness_CH1 = targetBrightness_CH1;
         }
 
-        analogWrite(PWM_PIN_CH1, currentBrightness_CH1);
-        updated = true;
+        dimmer1.setPower(currentBrightness_CH1);
     }
 
-    // Update channel 2
+    // Channel 2
     if (currentBrightness_CH2 != targetBrightness_CH2)
     {
-        int step = (targetBrightness_CH2 > currentBrightness_CH2) ? max(1, (targetBrightness_CH2 - currentBrightness_CH2) / FADE_STEPS) : min(-1, (targetBrightness_CH2 - currentBrightness_CH2) / FADE_STEPS);
-
+        int step = (targetBrightness_CH2 > currentBrightness_CH2) ? FADE_STEP_SIZE : -FADE_STEP_SIZE;
         currentBrightness_CH2 += step;
 
-        if ((step > 0 && currentBrightness_CH2 >= targetBrightness_CH2) ||
-            (step < 0 && currentBrightness_CH2 <= targetBrightness_CH2))
+        if ((step > 0 && currentBrightness_CH2 > targetBrightness_CH2) ||
+            (step < 0 && currentBrightness_CH2 < targetBrightness_CH2))
         {
             currentBrightness_CH2 = targetBrightness_CH2;
         }
 
-        analogWrite(PWM_PIN_CH2, currentBrightness_CH2);
-        updated = true;
+        dimmer2.setPower(currentBrightness_CH2);
     }
 
-    if (updated && DEBUG_MODE)
+    if (DEBUG_MODE && (currentBrightness_CH1 != targetBrightness_CH1 ||
+                       currentBrightness_CH2 != targetBrightness_CH2))
     {
-        printDebug("Fading", currentBrightness_CH1);
+        printDebug("Fading CH1", currentBrightness_CH1);
     }
 }
 
@@ -391,11 +436,10 @@ void sendHeartbeat()
     {
         if (DEBUG_MODE)
         {
-            Serial.print("[HEARTBEAT] ");
-            Serial.print("CH1:");
-            Serial.print(map(currentBrightness_CH1, PWM_MIN, PWM_MAX, 0, 100));
+            Serial.print("[HEARTBEAT] CH1:");
+            Serial.print(currentBrightness_CH1);
             Serial.print("% CH2:");
-            Serial.print(map(currentBrightness_CH2, PWM_MIN, PWM_MAX, 0, 100));
+            Serial.print(currentBrightness_CH2);
             Serial.println("%");
         }
         lastHeartbeatTime = millis();
@@ -409,7 +453,7 @@ void sendHeartbeat()
 void sendReadySignal()
 {
     // Single line only — Python reads exactly one line in check_ready()
-    Serial.println("READY: RobotDyn Dimmer Controller v2.0");
+    Serial.println("READY: RobotDyn Dimmer Controller v3.0 (ZC-Sync)");
 }
 
 void sendCommandAck(char *behavior, int brightness)
@@ -441,19 +485,17 @@ void sendStatus(const char *status)
 void sendStatusReport()
 {
     Serial.print("REPORT:CH1=");
-    Serial.print(map(currentBrightness_CH1, PWM_MIN, PWM_MAX, 0, 100));
+    Serial.print(currentBrightness_CH1);
     Serial.print(",CH2=");
-    Serial.print(map(currentBrightness_CH2, PWM_MIN, PWM_MAX, 0, 100));
+    Serial.print(currentBrightness_CH2);
     Serial.print(",TIMEOUT=");
-    Serial.print(timeoutEnabled ? "ON" : "OFF");
-    Serial.println();
+    Serial.println(timeoutEnabled ? "ON" : "OFF");
 }
 
-void logBrightnessChange(char *behavior, int brightness, int pwmValue)
+void logBrightnessChange(char *behavior, int brightness)
 {
     printDebug("Behavior", behavior);
     printDebug("Brightness%", brightness);
-    printDebug("PWM_Value", pwmValue);
 }
 
 // =============================================================================

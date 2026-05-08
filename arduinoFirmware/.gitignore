@@ -1,0 +1,7 @@
+# PlatformIO build outputs
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# VS Code PlatformIO extension
+.vscode/
