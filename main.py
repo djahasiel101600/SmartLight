@@ -49,12 +49,50 @@ from stability.activity_smoother import ActivitySmoother
 # Overlay helpers
 # ---------------------------------------------------------------------------
 _ACTIVITY_COLORS = {
-    "Reading Book/s": (0, 200, 255),
-    "Using Cellphone": (255, 150, 0),
-    "Using Laptop":   (0, 255, 100),
-    "Idle":           (180, 180, 180),
+    "Reading Book/s": (0,   200, 255),
+    "Using Cellphone": (255, 150,   0),
+    "Using Laptop":   (0,   255, 100),
+    "Idle":           (160, 160, 160),
 }
 _DEFAULT_COLOR = (200, 200, 200)
+
+# UI palette (BGR)
+_BG_DARK    = (20,  20,  40)
+_TEXT_PRI   = (240, 240, 240)
+_TEXT_SEC   = (150, 155, 170)
+_ACCENT_YEL = (50,  220, 255)   # lux / sun tint
+_ACCENT_AMB = (50,  190, 255)   # dimmer / bulb tint
+
+_FONT      = cv2.FONT_HERSHEY_SIMPLEX
+_FONT_BOLD = cv2.FONT_HERSHEY_DUPLEX
+
+
+def _estimate_lux(frame) -> float:
+    """
+    Estimate relative ambient lux from average frame brightness.
+    Not calibrated; useful as a lighting trend indicator.
+      avg=0   →    0 lux
+      avg=128 → ~150 lux
+      avg=255 → 1000 lux
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    avg = float(gray.mean())
+    return round((avg / 255.0) ** 1.8 * 1000.0, 1)
+
+
+def _pill(frame, text: str, origin, color, scale: float = 0.52, thickness: int = 1) -> int:
+    """Draw a filled pill label; returns the x-coordinate after the pill."""
+    x, y = origin
+    pad_x, pad_y = 10, 5
+    (tw, th), _ = cv2.getTextSize(text, _FONT_BOLD, scale, thickness)
+    rx1, ry1 = x, y - th - pad_y
+    rx2, ry2 = x + tw + pad_x * 2, y + pad_y
+    cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), color, -1)
+    cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), _TEXT_PRI, 1)
+    text_color = (10, 10, 10) if sum(color) > 400 else _TEXT_PRI
+    cv2.putText(frame, text, (x + pad_x, y), _FONT_BOLD, scale,
+                text_color, thickness, cv2.LINE_AA)
+    return rx2 + 8
 
 
 # ---------------------------------------------------------------------------
@@ -125,30 +163,104 @@ def _draw_overlay(
     source: str,
     bbox,
     motion: bool,
-    api_busy: bool = False,
+    api_busy: bool,
+    fps: float,
+    lux: float,
+    dimmer_pct: int,
 ) -> None:
+    import math
     h, w = frame.shape[:2]
-    color = _ACTIVITY_COLORS.get(activity, _DEFAULT_COLOR)
+    act_color = _ACTIVITY_COLORS.get(activity, _DEFAULT_COLOR)
 
-    # Bounding box around detected person
+    # ------------------------------------------------------------------
+    # Bounding box: thin rect + L-corner accents + floating pill label
+    # ------------------------------------------------------------------
     if bbox is not None:
         x1, y1, x2, y2 = bbox
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), act_color, 1)
+        clen = 14
+        for cx, cy, dx, dy in [(x1, y1, 1, 1), (x2, y1, -1, 1),
+                                (x1, y2, 1, -1), (x2, y2, -1, -1)]:
+            cv2.line(frame, (cx, cy), (cx + dx * clen, cy), act_color, 3)
+            cv2.line(frame, (cx, cy), (cx, cy + dy * clen), act_color, 3)
+        tag_y = max(y1 - 6, 22)
+        _pill(frame, f" {activity} ", (x1, tag_y), act_color, scale=0.44)
 
-    # Activity label bar at top
-    cv2.rectangle(frame, (0, 0), (w, 50), (0, 0, 0), -1)
-    label = f"{activity}  ({confidence}%)  [{source}]"
+    # ------------------------------------------------------------------
+    # Header bar  (semi-transparent)
+    # ------------------------------------------------------------------
+    header_h = 38
+    ov = frame.copy()
+    cv2.rectangle(ov, (0, 0), (w, header_h), _BG_DARK, -1)
+    cv2.addWeighted(ov, 0.78, frame, 0.22, 0, frame)
+
+    # Live indicator dot
+    cv2.circle(frame, (14, header_h // 2), 6, (0, 220, 80), -1)
+    cv2.putText(frame, "SmartLight AI", (28, 25),
+                _FONT_BOLD, 0.55, _TEXT_PRI, 1, cv2.LINE_AA)
+
+    fps_txt = f"FPS: {fps:.1f}"
+    (fw, _), _ = cv2.getTextSize(fps_txt, _FONT, 0.46, 1)
+    cv2.putText(frame, fps_txt, (w - fw - 10, 25),
+                _FONT, 0.46, _TEXT_SEC, 1, cv2.LINE_AA)
+
+    # ------------------------------------------------------------------
+    # Bottom info panel  (semi-transparent, 2 rows)
+    # ------------------------------------------------------------------
+    panel_h = 72
+    panel_y = h - panel_h
+    ov2 = frame.copy()
+    cv2.rectangle(ov2, (0, panel_y), (w, h), _BG_DARK, -1)
+    cv2.addWeighted(ov2, 0.80, frame, 0.20, 0, frame)
+    cv2.line(frame, (0, panel_y), (w, panel_y), (60, 60, 90), 1)
+
+    # Row 1 — activity pill | confidence | source tag
+    row1_y = panel_y + 26
+    nx = _pill(frame, f"  {activity}  ", (8, row1_y), act_color, scale=0.52)
+    cv2.putText(frame, f"Conf: {confidence}%", (nx, row1_y),
+                _FONT, 0.48, _TEXT_SEC, 1, cv2.LINE_AA)
+
+    src_col = (100, 220, 100) if source == "api" else (130, 130, 210)
+    src_txt = f"[{source.upper()}]"
+    (sw, _), _ = cv2.getTextSize(src_txt, _FONT, 0.44, 1)
+    cv2.putText(frame, src_txt, (w - sw - 10, row1_y),
+                _FONT, 0.44, src_col, 1, cv2.LINE_AA)
     if api_busy:
-        label += "  [API...]"
-    cv2.putText(frame, label, (10, 33), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+        cv2.circle(frame, (w - sw - 22, row1_y - 6), 5, (0, 220, 255), -1)
 
-    # Motion indicator dot — green = still, red = motion detected
-    dot_color = (0, 0, 255) if motion else (0, 255, 0)
-    cv2.circle(frame, (w - 20, 20), 8, dot_color, -1)
+    # Row 2 — lux | dimmer brightness | motion
+    row2_y = panel_y + 57
 
-    # API busy spinner dot (yellow) in bottom-right
-    if api_busy:
-        cv2.circle(frame, (w - 20, h - 20), 8, (0, 220, 255), -1)
+    # Sun icon (circle + 8 rays)
+    sx, sy = 14, row2_y - 7
+    cv2.circle(frame, (sx, sy), 5, _ACCENT_YEL, -1)
+    for angle in range(0, 360, 45):
+        rad = math.radians(angle)
+        cv2.line(frame,
+                 (int(sx + 8  * math.cos(rad)), int(sy + 8  * math.sin(rad))),
+                 (int(sx + 11 * math.cos(rad)), int(sy + 11 * math.sin(rad))),
+                 _ACCENT_YEL, 1)
+    lux_txt = f"{lux:.0f} lx"
+    cv2.putText(frame, lux_txt, (sx + 16, row2_y),
+                _FONT, 0.50, _ACCENT_YEL, 1, cv2.LINE_AA)
+
+    # Bulb icon + dimmer %
+    (lw, _), _ = cv2.getTextSize(lux_txt, _FONT, 0.50, 1)
+    bx, by = sx + 16 + lw + 20, row2_y - 7
+    cv2.circle(frame, (bx, by), 6, _ACCENT_AMB, 1)
+    cv2.line(frame, (bx - 3, by + 6), (bx + 3, by + 6), _ACCENT_AMB, 2)
+    cv2.line(frame, (bx - 3, by + 9), (bx + 3, by + 9), _ACCENT_AMB, 2)
+    dim_txt = f"Light: {dimmer_pct}%"
+    cv2.putText(frame, dim_txt, (bx + 14, row2_y),
+                _FONT, 0.50, _ACCENT_AMB, 1, cv2.LINE_AA)
+
+    # Motion indicator
+    (dw, _), _ = cv2.getTextSize(dim_txt, _FONT, 0.50, 1)
+    mx = bx + 14 + dw + 20
+    mot_col = (60, 60, 255) if motion else (80, 200, 80)
+    cv2.circle(frame, (mx, row2_y - 7), 5, mot_col, -1)
+    cv2.putText(frame, "MOTION" if motion else "STILL", (mx + 12, row2_y),
+                _FONT, 0.46, mot_col, 1, cv2.LINE_AA)
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +294,10 @@ def run(headless: bool = False) -> None:
         sys.exit(1)
 
     logger.log_info("Camera opened. Press Q to quit.")
-    logger.log_info("Indicator dots — top-right: green=still / red=motion  |  bottom-right: yellow=API calling")
+    logger.log_info("Bottom panel: lux estimate | light brightness % | motion status")
+
+    # FPS rolling average over the last 30 frames
+    _fps_times: list = []
 
     try:
         while True:
@@ -193,6 +308,14 @@ def run(headless: bool = False) -> None:
             if frame is None:
                 logger.log_warning("Empty frame received — skipping.")
                 continue
+
+            # FPS — rolling average over last 30 frames
+            _t = time.monotonic()
+            _fps_times.append(_t)
+            if len(_fps_times) > 30:
+                _fps_times.pop(0)
+            _fps = (len(_fps_times) / (_fps_times[-1] - _fps_times[0] + 1e-9)
+                    if len(_fps_times) > 1 else 0.0)
 
             # 2. ROI extraction
             roi, bbox = roi_extractor.extract(frame)
@@ -246,6 +369,8 @@ def run(headless: bool = False) -> None:
 
             # 8. Display
             if not headless:
+                _lux = _estimate_lux(frame)
+                _dim_pct = config.DIMMER_BRIGHTNESS.get(stable_activity, 0)
                 _draw_overlay(
                     frame,
                     activity=stable_activity,
@@ -254,8 +379,11 @@ def run(headless: bool = False) -> None:
                     bbox=bbox,
                     motion=engine_result.motion_detected,
                     api_busy=api_worker.is_busy,
+                    fps=_fps,
+                    lux=_lux,
+                    dimmer_pct=_dim_pct,
                 )
-                cv2.imshow("Activity Recognition", frame)
+                cv2.imshow("SmartLight — Activity Recognition", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
