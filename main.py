@@ -231,6 +231,7 @@ def run(headless: bool = False) -> None:
 
             # 6. Dimmer — only fires when stable activity label changes
             dimmer.update(stable_activity)
+            dimmer.keepalive()
 
             # 7. Logging
             processing_ms = (time.monotonic() - t_start) * 1000

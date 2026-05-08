@@ -11,6 +11,9 @@ class DimmerController:
         response = self.ser.readline().decode().strip()
         if 'READY' in response:
             print(f"Connected: {response}")
+            # Flush any remaining startup lines so they don't corrupt the first command response
+            time.sleep(0.1)
+            self.ser.reset_input_buffer()
             return True
         return False
     
