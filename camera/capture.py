@@ -30,16 +30,34 @@ class CameraCapture:
 
     # ------------------------------------------------------------------
     def start(self) -> None:
-        """Open the capture device."""
-        self._cap = cv2.VideoCapture(self._index)
-        if not self._cap.isOpened():
-            raise RuntimeError(
-                f"Could not open camera at index {self._index}. "
-                "Check that the camera is connected and not used by another process."
-            )
+        """Open the capture device, trying V4L2 backend on Linux if auto fails."""
+        self._cap = self._open_camera()
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
         self._cap.set(cv2.CAP_PROP_FPS, self._fps)
+        # Give the camera hardware time to initialise before the first read
+        time.sleep(config.CAMERA_WARMUP_SECONDS)
+
+    def _open_camera(self) -> cv2.VideoCapture:
+        """Try V4L2 backend first on Linux, then auto-detect."""
+        import platform
+        backends = []
+        if config.CAMERA_BACKEND != 0:
+            backends.append(config.CAMERA_BACKEND)
+        if platform.system() == "Linux":
+            backends.append(cv2.CAP_V4L2)
+        backends.append(cv2.CAP_ANY)
+
+        for backend in backends:
+            cap = cv2.VideoCapture(self._index, backend)
+            if cap.isOpened():
+                return cap
+            cap.release()
+
+        raise RuntimeError(
+            f"Could not open camera at index {self._index} with any backend. "
+            "Check that the camera is connected and not used by another process."
+        )
 
     # ------------------------------------------------------------------
     def read_frame(self) -> Optional[np.ndarray]:
