@@ -3,8 +3,9 @@ OpenAIVisionClient — sends a frame to the OpenAI Vision API and returns a
 structured activity classification.
 
 Security:
-    The API key is NEVER hardcoded. It must be set via the OPENAI_API_KEY
-    environment variable before starting the application.
+    The API key is NEVER hardcoded. It is loaded from the .env file in the
+    project root (OPENAI_API_KEY=...). The .env file must never be committed
+    to version control — it is listed in .gitignore.
 """
 
 import base64
@@ -16,8 +17,13 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 
 import config
+
+# Load .env from the project root (SmartLight/) so the key is always available
+# regardless of where the script is launched from.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 try:
     from openai import OpenAI, APIError, APITimeoutError, APIConnectionError

@@ -1,0 +1,14 @@
+# Environment / secrets — never commit these
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Outputs / logs
+outputs/*.log
+
+# Virtual environment
+.venv/
+venv/
