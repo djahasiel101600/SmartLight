@@ -97,7 +97,7 @@ void checkSafetyTimeout();
 void sendHeartbeat();
 void setBothChannels(int pct);
 void setChannel(int channel, int pct);
-int  validateBrightness(char *brightnessStr);
+int validateBrightness(char *brightnessStr);
 void sendCommandAck(char *behavior, int brightness);
 void sendResponse(const char *message);
 void sendError(const char *error);
