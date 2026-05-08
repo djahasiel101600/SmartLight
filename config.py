@@ -76,7 +76,7 @@ DIMMER_COMMIT_DELAY: float = 3.0    # Seconds a new activity must persist before
 DIMMER_BRIGHTNESS: dict = {
     "Reading Book/s": 90,
     "Using Laptop":   70,
-    "Using Cellphone": 65,
+    "Using Cellphone": 60,
     "Idle":           20,
 }
 
