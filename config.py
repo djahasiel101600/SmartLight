@@ -13,7 +13,7 @@ FRAME_HEIGHT: int = 480
 
 CAMERA_BACKEND: int = 0        # 0 = auto-detect, or cv2.CAP_V4L2 (200) for Pi
 CAMERA_WARMUP_SECONDS: float = 2.0  # Seconds to let the camera warm up after open
-CAMERA_USE_PICAMERA2: bool = True   # True for CSI camera module, False for USB webcam
+CAMERA_USE_PICAMERA2: bool = False  # True for Pi CSI camera module, False for USB webcam / Windows dev
 HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 
 # ---------------------------------------------------------------------------
