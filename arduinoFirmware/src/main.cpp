@@ -60,8 +60,10 @@ const bool DEBUG_MODE = false;
 // DIMMER OBJECTS
 // =============================================================================
 
-dimmerLamp dimmer1(PWM_PIN_CH1, ZC_PIN);
-dimmerLamp dimmer2(PWM_PIN_CH2, ZC_PIN);
+// dimmerLamp constructor takes only the PWM pin.
+// The ZC pin is set globally by the library via the first begin() call.
+dimmerLamp dimmer1(PWM_PIN_CH1);
+dimmerLamp dimmer2(PWM_PIN_CH2);
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -80,6 +82,31 @@ unsigned long lastCommandTime = 0;
 unsigned long lastHeartbeatTime = 0;
 bool timeoutEnabled = true;
 bool processingCommand = false;
+
+// =============================================================================
+// FORWARD DECLARATIONS
+// (PlatformIO does not auto-generate these unlike Arduino IDE)
+// =============================================================================
+void sendReadySignal();
+void runLightPOST();
+void statusBlink(int count);
+void processSerialInput();
+void processCommand(char *command);
+void updateFading();
+void checkSafetyTimeout();
+void sendHeartbeat();
+void setBothChannels(int pct);
+void setChannel(int channel, int pct);
+int  validateBrightness(char *brightnessStr);
+void sendCommandAck(char *behavior, int brightness);
+void sendResponse(const char *message);
+void sendError(const char *error);
+void sendStatus(const char *status);
+void sendStatusReport();
+void logBrightnessChange(char *behavior, int brightness);
+void resetDevice();
+void printDebug(const char *label, int value);
+void printDebug(const char *label, const char *value);
 
 // =============================================================================
 // SETUP
