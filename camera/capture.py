@@ -1,5 +1,5 @@
 """
-CameraCapture — wraps cv2.VideoCapture with configurable FPS and resolution.
+CameraCapture — supports picamera2 (CSI) or cv2.VideoCapture (USB webcam).
 """
 
 import time
@@ -9,9 +9,14 @@ from typing import Optional
 
 import config
 
+try:
+    from picamera2 import Picamera2
+    _PICAMERA2_AVAILABLE = True
+except ImportError:
+    _PICAMERA2_AVAILABLE = False
+
 
 class CameraCapture:
-    """Opens a camera device and yields frames on demand."""
 
     def __init__(
         self,
@@ -24,22 +29,31 @@ class CameraCapture:
         self._width = width
         self._height = height
         self._fps = fps
-        self._cap: Optional[cv2.VideoCapture] = None
         self._frame_interval: float = 1.0 / fps
         self._last_capture: float = 0.0
+        self._cap: Optional[cv2.VideoCapture] = None
+        self._picam = None
 
-    # ------------------------------------------------------------------
     def start(self) -> None:
-        """Open the capture device, trying V4L2 backend on Linux if auto fails."""
-        self._cap = self._open_camera()
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
-        self._cap.set(cv2.CAP_PROP_FPS, self._fps)
-        # Give the camera hardware time to initialise before the first read
+        if config.CAMERA_USE_PICAMERA2:
+            self._start_picamera2()
+        else:
+            self._start_cv2()
         time.sleep(config.CAMERA_WARMUP_SECONDS)
 
-    def _open_camera(self) -> cv2.VideoCapture:
-        """Try V4L2 backend first on Linux, then auto-detect."""
+    def _start_picamera2(self) -> None:
+        if not _PICAMERA2_AVAILABLE:
+            raise RuntimeError(
+                "picamera2 not found. Run: sudo apt install -y python3-picamera2"
+            )
+        self._picam = Picamera2()
+        cfg = self._picam.create_preview_configuration(
+            main={"format": "BGR888", "size": (self._width, self._height)}
+        )
+        self._picam.configure(cfg)
+        self._picam.start()
+
+    def _start_cv2(self) -> None:
         import platform
         backends = []
         if config.CAMERA_BACKEND != 0:
@@ -47,55 +61,53 @@ class CameraCapture:
         if platform.system() == "Linux":
             backends.append(cv2.CAP_V4L2)
         backends.append(cv2.CAP_ANY)
-
         for backend in backends:
             cap = cv2.VideoCapture(self._index, backend)
             if cap.isOpened():
-                return cap
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+                cap.set(cv2.CAP_PROP_FPS, self._fps)
+                self._cap = cap
+                return
             cap.release()
+        raise RuntimeError(f"Could not open camera at index {self._index}.")
 
-        raise RuntimeError(
-            f"Could not open camera at index {self._index} with any backend. "
-            "Check that the camera is connected and not used by another process."
-        )
-
-    # ------------------------------------------------------------------
     def read_frame(self) -> Optional[np.ndarray]:
-        """
-        Read one frame, respecting the target FPS interval.
-        Returns None if the camera is not open or read fails.
-        """
-        if self._cap is None or not self._cap.isOpened():
-            return None
-
         now = time.monotonic()
         elapsed = now - self._last_capture
         if elapsed < self._frame_interval:
             time.sleep(self._frame_interval - elapsed)
-
-        ret, frame = self._cap.read()
+        if self._picam is not None:
+            try:
+                frame = self._picam.capture_array("main")
+            except Exception:
+                frame = None
+        else:
+            if self._cap is None or not self._cap.isOpened():
+                return None
+            ret, frame = self._cap.read()
+            if not ret:
+                frame = None
         self._last_capture = time.monotonic()
-
-        if not ret or frame is None:
-            return None
         return frame
 
-    # ------------------------------------------------------------------
     def stop(self) -> None:
-        """Release the capture device."""
         if self._cap is not None:
             self._cap.release()
             self._cap = None
+        if self._picam is not None:
+            self._picam.stop()
+            self._picam = None
 
-    # ------------------------------------------------------------------
-    def __enter__(self) -> "CameraCapture":
+    def __enter__(self):
         self.start()
         return self
 
-    def __exit__(self, *_) -> None:
+    def __exit__(self, *_):
         self.stop()
 
-    # ------------------------------------------------------------------
     @property
     def is_open(self) -> bool:
+        if self._picam is not None:
+            return True
         return self._cap is not None and self._cap.isOpened()

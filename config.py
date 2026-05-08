@@ -11,6 +11,10 @@ FPS: int = 15                  # Target capture FPS
 FRAME_WIDTH: int = 640
 FRAME_HEIGHT: int = 480
 
+CAMERA_BACKEND: int = 0        # 0 = auto-detect, or cv2.CAP_V4L2 (200) for Pi
+CAMERA_WARMUP_SECONDS: float = 2.0  # Seconds to let the camera warm up after open
+HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
+
 # ---------------------------------------------------------------------------
 # Motion Detection
 # ---------------------------------------------------------------------------
@@ -62,7 +66,7 @@ DEFAULT_ACTIVITY: str = "Idle"
 # Dimmer Controller (Arduino via Serial)
 # ---------------------------------------------------------------------------
 DIMMER_ENABLED: bool = True          # Set False to disable without changing code
-DIMMER_PORT: str = "COM3"            # Windows: COM3/COM4/etc.  Pi: /dev/ttyACM0
+DIMMER_PORT: str = "/dev/ttyACM0"   # Already working per your output
 DIMMER_BAUD: int = 9600
 
 # Brightness level (0-100) sent to the Arduino per activity.

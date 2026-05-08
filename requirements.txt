@@ -1,7 +1,8 @@
 opencv-python>=4.8.0
 numpy>=1.24.0
 openai>=1.30.0
-mediapipe>=0.10.0
+# mediapipe>=0.10.0
 scikit-image>=0.21.0
 pyserial>=3.5
 python-dotenv>=1.0.0
+python3-picamera2
