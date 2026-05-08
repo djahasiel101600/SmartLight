@@ -29,6 +29,11 @@ class DimmerManager:
         self._last_keepalive: float = 0.0
         # Keepalive interval must be safely below the firmware COMMAND_TIMEOUT (60s)
         self._keepalive_interval: float = 30.0
+        # Commit delay — a new activity must persist this long before dimmer acts.
+        # Prevents flickering when the smoother oscillates between two activities.
+        self._commit_delay: float = getattr(config, "DIMMER_COMMIT_DELAY", 3.0)
+        self._pending_activity: str | None = None
+        self._pending_since: float = 0.0
 
         if not config.DIMMER_ENABLED:
             print("[Dimmer] Disabled in config.")
@@ -51,7 +56,8 @@ class DimmerManager:
     # ------------------------------------------------------------------
     def update(self, activity: str) -> bool:
         """
-        Send a dimmer command if *activity* differs from the last sent activity.
+        Send a dimmer command only when *activity* has been stable for
+        DIMMER_COMMIT_DELAY seconds.  Rapid oscillations are ignored.
 
         Returns True if a command was dispatched, False otherwise.
         """
@@ -59,14 +65,28 @@ class DimmerManager:
             return False
 
         if activity == self._last_activity:
+            self._pending_activity = None  # committed already; reset pending
             return False  # No change — skip serial write
 
+        # Track how long this candidate activity has been continuously requested
+        now = time.monotonic()
+        if activity != self._pending_activity:
+            # New candidate — start the hold timer
+            self._pending_activity = activity
+            self._pending_since = now
+            return False
+
+        if now - self._pending_since < self._commit_delay:
+            return False  # Not stable long enough yet
+
+        # Activity has been stable for commit_delay — send to dimmer
         behavior = config.DIMMER_BEHAVIOR.get(activity, "idle")
         brightness = config.DIMMER_BRIGHTNESS.get(activity, 20)
 
         try:
             response = self._controller.send_command(behavior, brightness)
             self._last_activity = activity
+            self._pending_activity = None
             print(f"[Dimmer] {activity!r} → behavior={behavior!r} brightness={brightness} | response={response!r}")
             return True
         except Exception as exc:

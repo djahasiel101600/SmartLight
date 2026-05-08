@@ -49,8 +49,8 @@ JPEG_QUALITY: int = 75               # JPEG quality 1-100 for base64 payload
 # ---------------------------------------------------------------------------
 # Activity Stability (temporal smoothing)
 # ---------------------------------------------------------------------------
-STABILITY_WINDOW: int = 5            # Number of recent results to consider
-STABILITY_MAJORITY: float = 0.60     # Fraction of window that must agree
+STABILITY_WINDOW: int = 12           # Number of recent results to consider (~0.8s at 15fps)
+STABILITY_MAJORITY: float = 0.70     # Fraction of window that must agree
 
 # ---------------------------------------------------------------------------
 # Allowed Activities
@@ -69,6 +69,7 @@ DEFAULT_ACTIVITY: str = "Idle"
 DIMMER_ENABLED: bool = True          # Set False to disable without changing code
 DIMMER_PORT: str = "/dev/ttyACM0"   # Already working per your output
 DIMMER_BAUD: int = 9600
+DIMMER_COMMIT_DELAY: float = 3.0    # Seconds a new activity must persist before dimmer changes
 
 # Brightness level (0-100) sent to the Arduino per activity.
 # Adjust these to suit your lighting environment.
