@@ -371,29 +371,24 @@ def run(headless: bool = config.HEADLESS) -> None:
             if not headless:
                 _lux = _estimate_lux(frame)
                 _dim_pct = config.DIMMER_BRIGHTNESS.get(stable_activity, 0)
-                _draw_overlay(
-                    frame,
-                    activity=stable_activity,
-                    confidence=stable_confidence,
-                    source=source,
-                    bbox=bbox,
-                    motion=engine_result.motion_detected,
-                    api_busy=api_worker.is_busy,
-                    fps=_fps,
-                    lux=_lux,
-                    dimmer_pct=_dim_pct,
-                )
                 try:
-                    cv2.imshow("SmartLight — Activity Recognition", frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key == ord("q"):
-                        break
-                except cv2.error as _disp_err:
-                    logger.log_warning(
-                        f"Display unavailable ({_disp_err}). "
-                        "Set HEADLESS=True in config.py or run with --headless."
+                    _draw_overlay(
+                        frame,
+                        activity=stable_activity,
+                        confidence=stable_confidence,
+                        source=source,
+                        bbox=bbox,
+                        motion=engine_result.motion_detected,
+                        api_busy=api_worker.is_busy,
+                        fps=_fps,
+                        lux=_lux,
+                        dimmer_pct=_dim_pct,
                     )
-                    headless = True  # stop retrying every frame
+                except Exception:
+                    pass  # overlay errors must not drop the camera feed
+                cv2.imshow("SmartLight Activity Recognition", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
 
     except KeyboardInterrupt:
         pass
