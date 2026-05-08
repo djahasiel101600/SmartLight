@@ -7,7 +7,7 @@ All tunable parameters live here.
 # Camera
 # ---------------------------------------------------------------------------
 CAMERA_INDEX: int = 0          # cv2.VideoCapture index (0 = default webcam)
-FPS: int = 15                  # Target capture FPS
+FPS: int = 30                  # Target capture FPS (display loop runs freely between captures)
 FRAME_WIDTH: int = 640
 FRAME_HEIGHT: int = 480
 
@@ -76,7 +76,7 @@ DIMMER_COMMIT_DELAY: float = 3.0    # Seconds a new activity must persist before
 DIMMER_BRIGHTNESS: dict = {
     "Reading Book/s": 90,
     "Using Laptop":   70,
-    "Using Cellphone": 60,
+    "Using Cellphone": 65,
     "Idle":           20,
 }
 

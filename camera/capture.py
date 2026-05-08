@@ -31,6 +31,7 @@ class CameraCapture:
         self._fps = fps
         self._frame_interval: float = 1.0 / fps
         self._last_capture: float = 0.0
+        self._last_frame = None          # cached frame for display between captures
         self._cap: Optional[cv2.VideoCapture] = None
         self._picam = None
 
@@ -74,22 +75,25 @@ class CameraCapture:
 
     def read_frame(self) -> Optional[np.ndarray]:
         now = time.monotonic()
-        elapsed = now - self._last_capture
-        if elapsed < self._frame_interval:
-            time.sleep(self._frame_interval - elapsed)
-        if self._picam is not None:
-            try:
-                frame = self._picam.capture_array("main")
-            except Exception:
-                frame = None
-        else:
-            if self._cap is None or not self._cap.isOpened():
-                return None
-            ret, frame = self._cap.read()
-            if not ret:
-                frame = None
-        self._last_capture = time.monotonic()
-        return frame
+        # Only grab a new frame from hardware when the capture interval has elapsed.
+        # Between captures return the last frame immediately so the display loop
+        # is never blocked by a sleep() and the window stays smooth.
+        if now - self._last_capture >= self._frame_interval:
+            if self._picam is not None:
+                try:
+                    frame = self._picam.capture_array("main")
+                except Exception:
+                    frame = None
+            else:
+                if self._cap is None or not self._cap.isOpened():
+                    return None
+                ret, frame = self._cap.read()
+                if not ret:
+                    frame = None
+            if frame is not None:
+                self._last_frame = frame
+            self._last_capture = now
+        return self._last_frame
 
     def stop(self) -> None:
         if self._cap is not None:
