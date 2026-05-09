@@ -83,6 +83,9 @@ unsigned long lastHeartbeatTime = 0;
 bool timeoutEnabled = true;
 bool processingCommand = false;
 
+// Pi connection state — lights stay OFF until Pi sends its first command
+bool piConnected = false;
+
 // =============================================================================
 // FORWARD DECLARATIONS
 // (PlatformIO does not auto-generate these unlike Arduino IDE)
@@ -133,10 +136,11 @@ void setup()
     delay(100); // Allow Serial to stabilize
     sendReadySignal();
 
-    // POST: slowly ramp lights 0 → 100% then back to 0%
-    runLightPOST();
+    // Do NOT run the POST light ramp here.
+    // Lights stay OFF until the Raspberry Pi connects and sends its first command.
+    // The POST ramp runs automatically on first Pi command (see processCommand).
 
-    // Startup blink sequence
+    // Startup blink sequence (STATUS LED only, no light output)
     statusBlink(3);
 }
 
@@ -313,6 +317,16 @@ void processCommand(char *command)
     }
 
     // Apply brightness directly in % — no map() needed with ZC-sync library
+    //
+    // First valid command from Pi: run the POST ramp now so the light confirms
+    // connection, then immediately set the requested brightness level.
+    if (!piConnected)
+    {
+        piConnected = true;
+        Serial.println("STATUS: Pi connected — light active");
+        runLightPOST();
+    }
+
     if (ENABLE_FADING)
     {
         // Set target for smooth fading
