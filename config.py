@@ -80,22 +80,34 @@ DIMMER_COMMIT_DELAY: float = 1.5    # Seconds a new activity must persist before
 # The closed-loop controller steps brightness up/down to keep the
 # camera-estimated lux within these bands.
 ACTIVITY_LUX_RANGE: dict = {
-    "Reading Book/s":  (300, 500),   # IES: sufficient brightness for concentration
-    "Writing":         (300, 500),   # IES: same as reading
-    "Using Laptop":    (300, 500),   # IES: reduces glare and eye strain
-    "Using Cellphone": (200, 300),   # IES: balanced lighting for screens
-    "Idle":            (100, 150),   # IES: dimming lighting for comfort
+    "Reading Book/s":  (500, 750),   # IES: sufficient brightness for concentration
+    "Writing":         (500, 750),   # IES: same as reading
+    "Using Laptop":    (150, 500),   # IES: reduces glare and eye strain
+    "Using Cellphone": (100, 200),   # IES: balanced lighting for screens
+    "Idle":            (50, 100),   # IES: dimming lighting for comfort
 }
 
 LUX_STEP_SIZE: int = 3              # Brightness % points to nudge per control tick
 LUX_CONTROL_INTERVAL: float = 0.5  # Seconds between control ticks
+
+# Lux-to-brightness lookup table derived from reference hardware measurements.
+# Each row: (lux_min, lux_max, brightness_min%, brightness_max%)
+# Used to seed the initial brightness on activity commit and to clamp the
+# controller output so the displayed brightness % always stays within the
+# range that physically produces the target illuminance.
+LUX_BRIGHTNESS_TABLE: list = [
+    ( 50,  100, 10, 20),   #  50–100 lux  → 10–20%
+    (100,  200, 20, 40),   # 100–200 lux  → 20–40%
+    (150,  300, 30, 50),   # 150–300 lux  → 30–50%
+    (500,  750, 80, 100),  # 500–750 lux  → 80–100%
+]
 
 # Calibration factor: multiply raw camera-estimated lux by this value to
 # approximate real photometric lux.  To calibrate, hold a real lux meter next
 # to the camera, read both values, then set:
 #   LUX_CALIBRATION_SCALE = <meter reading> / <_estimate_lux() output>
 # Default 1.0 means no correction (relative control only).
-LUX_CALIBRATION_SCALE: float = 1.0
+LUX_CALIBRATION_SCALE: float = 0.59
 
 # Behavior label sent to the Arduino (must match your Arduino firmware).
 DIMMER_BEHAVIOR: dict = {

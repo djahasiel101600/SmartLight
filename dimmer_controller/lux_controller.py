@@ -11,8 +11,9 @@ Dead-band logic (evaluated per tick):
     calibrated_lux > range_max  →  brightness -= LUX_STEP_SIZE   (too bright, dim)
     within [range_min, range_max]  →  hold (no serial command)
 
-The controller is intentionally simple — no integral or derivative terms — to
-avoid windup and over-correction on a non-calibrated camera-based lux estimate.
+Brightness output is always clamped to the range produced by
+``LUX_BRIGHTNESS_TABLE`` for the target lux band, so the displayed
+brightness % stays physically meaningful.
 """
 
 import time
@@ -20,10 +21,53 @@ import time
 import config
 
 
+# ---------------------------------------------------------------------------
+# Piecewise-linear interpolation helpers
+# ---------------------------------------------------------------------------
+
+def _build_control_points() -> list[tuple[float, float]]:
+    """
+    Derive unique, sorted (lux, brightness%) control points from
+    LUX_BRIGHTNESS_TABLE by treating each row’s endpoints as anchors.
+    """
+    pts: dict[float, float] = {}
+    for lux_lo, lux_hi, b_lo, b_hi in config.LUX_BRIGHTNESS_TABLE:
+        pts[float(lux_lo)] = float(b_lo)
+        pts[float(lux_hi)] = float(b_hi)
+    return sorted(pts.items())
+
+
+def _lux_to_brightness(lux: float) -> int:
+    """
+    Piecewise-linear mapping from a lux value to a brightness percentage
+    using LUX_BRIGHTNESS_TABLE as anchor points.
+
+    Values below the lowest anchor are clamped to the minimum brightness;
+    values above the highest anchor are clamped to the maximum.
+    """
+    pts = _build_control_points()
+    if lux <= pts[0][0]:
+        return int(pts[0][1])
+    if lux >= pts[-1][0]:
+        return int(pts[-1][1])
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        if x0 <= lux <= x1:
+            t = (lux - x0) / (x1 - x0)
+            return int(round(y0 + t * (y1 - y0)))
+    return 50  # unreachable fallback
+
+
 class LuxController:
     """
     Dead-band step controller that drives dimmer brightness toward the
     IES lux target range for the current activity.
+
+    Brightness output is clamped to the range [_lux_to_brightness(lux_min),
+    _lux_to_brightness(lux_max)] for the target band, ensuring the displayed
+    brightness % always falls within the values that physically produce the
+    required illuminance.
     """
 
     def __init__(
@@ -39,15 +83,14 @@ class LuxController:
     # ------------------------------------------------------------------
     def set_initial(self, target_range: tuple[int, int]) -> None:
         """
-        Seed brightness to the midpoint of *target_range* when the activity
-        first commits.  This puts the light in a reasonable starting position
-        before the closed-loop controller takes over, avoiding a long ramp
-        from whatever the previous brightness was.
+        Seed brightness using LUX_BRIGHTNESS_TABLE so the light immediately
+        jumps to the brightness % that physically produces the midpoint lux
+        of *target_range*, rather than starting from an arbitrary number.
         """
         lo, hi = target_range
-        self._brightness = max(0, min(100, (lo + hi) // 2))
-        # Reset the tick timer so the first control step is delayed by one
-        # full interval, giving the light time to settle after the jump.
+        mid_lux = (lo + hi) / 2.0
+        self._brightness = _lux_to_brightness(mid_lux)
+        # Delay first control tick so the light can settle after the jump.
         self._last_tick = time.monotonic()
 
     # ------------------------------------------------------------------
@@ -80,12 +123,16 @@ class LuxController:
         calibrated = current_lux * config.LUX_CALIBRATION_SCALE
         lo, hi = target_range
 
+        # Derive the valid brightness range for this lux band from the table.
+        b_min = _lux_to_brightness(lo)
+        b_max = _lux_to_brightness(hi)
+
         if calibrated < lo:
-            # Scene is too dark — increase brightness
-            new_brightness = min(100, self._brightness + self._step)
+            # Scene is too dark — increase brightness, clamped to table max
+            new_brightness = min(b_max, self._brightness + self._step)
         elif calibrated > hi:
-            # Scene is too bright — decrease brightness
-            new_brightness = max(0, self._brightness - self._step)
+            # Scene is too bright — decrease brightness, clamped to table min
+            new_brightness = max(b_min, self._brightness - self._step)
         else:
             # Within target band — hold
             return self._brightness, False
