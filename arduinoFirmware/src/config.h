@@ -57,20 +57,6 @@ const bool DEBUG_MODE = true;
 //     Conduction window too small for the LED driver to sustain operation.
 //     Bulb stays completely off.
 //
-<<<<<<< HEAD
-//   WORKING LOW BAND:  setPower(23..50)  — confirmed monotonically increasing.
-//     Maps to logical input range 1%..50%.
-//     Hardware verified: setPower(10,20,30,40,50) each produce a visible step up.
-//
-//   Zone C — non-monotonic region  (setPower 51-64):
-//     51-58: unconfirmed (VERIFY on next fine scan).
-//     59:    dead (bulb off).
-//     60:    bulb lit but LOWER brightness than setPower(50) — reverse effect
-//            caused by 50 Hz LUT compression at 60 Hz.
-//     61-64: dead (bulb off).
-//     This entire range is unusable for monotonic control.
-//     FIX: high band starts at 65, jumping cleanly over the entire region.
-=======
 //   WORKING LOW BAND:  setPower(23..58)  — confirmed OK by hardware scan.
 //     Maps to logical input range 1%..50%.
 //
@@ -78,9 +64,8 @@ const bool DEBUG_MODE = true;
 //     LED driver cuts out at these phase angles. Hardware-specific; not a
 //     library issue. Bulb off for all values 59, 60, 61, 62, 63, 64.
 //     FIX: high band starts at 65, jumping cleanly over the dead zone.
->>>>>>> parent of df8b579 (Add reading activity and alignment)
 //
-//   WORKING HIGH BAND:  setPower(65..89)  — confirmed monotonically increasing.
+//   WORKING HIGH BAND:  setPower(65..99)  — confirmed OK by hardware scan.
 //     Maps to logical input range 51%..100%.
 //     NOTE: setPower(90-99) plateau — setPower(90) == setPower(99) in brightness.
 //     DIM_HIGH_END capped at 89 (last confirmed step before the plateau).
@@ -91,27 +76,16 @@ const bool DEBUG_MODE = true;
 //
 // MONOTONICITY GUARANTEE:
 //   Linear interpolation within each ascending band is always non-decreasing.
-<<<<<<< HEAD
-//   At the boundary: output(50%) = DIM_LOW_END = 50,
-//                    output(51%) = DIM_HIGH_START = 65.
-//   65 > 50, so the output sequence never drops at the crossover.
-//   No output value ever falls inside a dead or non-monotonic zone.
-=======
 //   At the boundary: output(50%) = DIM_LOW_END = 58,
 //                    output(51%) = DIM_HIGH_START = 65.
 //   65 > 58, so the output sequence never drops at the crossover.
 //   No output value ever falls inside a dead zone.
->>>>>>> parent of df8b579 (Add reading activity and alignment)
 //
 // To calibrate for a different bulb: adjust only the four constants below
 // and reflash. The monotonicity guarantee holds for any values where
 // DIM_LOW_END < DIM_HIGH_START and both bands avoid the dead zones.
 //
 const uint8_t DIM_LOW_START = 23;  // low  band start — logical  1%
-<<<<<<< HEAD
-const uint8_t DIM_LOW_END = 50;    // low  band end   — logical 50%  (last confirmed monotonic step)
-=======
 const uint8_t DIM_LOW_END = 58;    // low  band end   — logical 50%
->>>>>>> parent of df8b579 (Add reading activity and alignment)
 const uint8_t DIM_HIGH_START = 65; // high band start — logical 51%
 const uint8_t DIM_HIGH_END = 89;   // high band end   — logical 100% (90-99 plateau — capped at 89)

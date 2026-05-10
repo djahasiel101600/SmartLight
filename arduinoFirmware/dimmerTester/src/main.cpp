@@ -121,11 +121,7 @@ const char *LABELS[100] = {
     /* 38 */ "OK",
     /* 39 */ "OK",
     /* 40 */ "OK",
-<<<<<<< HEAD
-    /* 41 */ "OK",  // confirmed step-up range (40-50 all increase monotonically)
-=======
     /* 41 */ "OK",
->>>>>>> parent of df8b579 (Add reading activity and alignment)
     /* 42 */ "OK",
     /* 43 */ "OK",
     /* 44 */ "OK",
@@ -134,19 +130,6 @@ const char *LABELS[100] = {
     /* 47 */ "OK",
     /* 48 */ "OK",
     /* 49 */ "OK",
-<<<<<<< HEAD
-    /* 50 */ "OK",   // LOW RANGE END — last confirmed monotonic step
-    /* 51 */ "VERIFY", // needs fine scan — possibly still monotonic or plateau
-    /* 52 */ "VERIFY",
-    /* 53 */ "VERIFY",
-    /* 54 */ "VERIFY",
-    /* 55 */ "VERIFY",
-    /* 56 */ "VERIFY",
-    /* 57 */ "VERIFY",
-    /* 58 */ "VERIFY",
-    /* 59 */ "DEAD",
-    /* 60 */ "NON-MONO", // lit but LOWER brightness than setPower(50) — 50Hz LUT reverse effect
-=======
     /* 50 */ "OK",
     /* 51 */ "OK",
     /* 52 */ "OK",
@@ -158,7 +141,6 @@ const char *LABELS[100] = {
     /* 58 */ "OK",   // LOW RANGE END
     /* 59 */ "DEAD", // DEAD ZONE START — bulb-specific LED driver dead zone
     /* 60 */ "DEAD",
->>>>>>> parent of df8b579 (Add reading activity and alignment)
     /* 61 */ "DEAD",
     /* 62 */ "DEAD",
     /* 63 */ "DEAD",
@@ -187,7 +169,7 @@ const char *LABELS[100] = {
     /* 86 */ "OK",
     /* 87 */ "OK",
     /* 88 */ "OK",
-    /* 89 */ "OK",     // HIGH RANGE END — last confirmed monotonic step
+    /* 89 */ "OK",      // HIGH RANGE END — last confirmed monotonic step
     /* 90 */ "PLATEAU", // confirmed same brightness as setPower(99) — no increase
     /* 91 */ "PLATEAU",
     /* 92 */ "PLATEAU",
