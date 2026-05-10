@@ -29,7 +29,7 @@ const unsigned long HEARTBEAT_INTERVAL = 1000; // ms between heartbeat prints
 // =============================================================================
 
 // Set ENABLE_FADING to true after the 10-step brightness test passes.
-const bool ENABLE_FADING = false;
+const bool ENABLE_FADING = true;
 const int FADE_STEP_SIZE = 2; // % per tick
 const int FADE_DELAY_MS = 20; // tick interval — 2%/20ms = 100% in 1 second
 
@@ -39,7 +39,7 @@ const int FADE_DELAY_MS = 20; // tick interval — 2%/20ms = 100% in 1 second
 
 // When true, prints [DEBUG] lines and [HEARTBEAT] lines to the serial monitor.
 // Set to false before deploying to Raspberry Pi.
-const bool DEBUG_MODE = true;
+const bool DEBUG_MODE = false;
 
 // =============================================================================
 // BRIGHTNESS MAPPING — confirmed hardware working ranges (60 Hz)
