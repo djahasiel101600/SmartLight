@@ -84,7 +84,7 @@ const bool DEBUG_MODE = true;
 //
 static const uint8_t BRIGHTNESS_LUT[11] = {
     0,  // 0%  -> OFF via setState(OFF); value never passed to setPower()
-    23, // 10% -> low range start  (first confirmed dim level)
+    27, // 10% -> low range start  (first confirmed dim level)
     32, // 20%
     41, // 30%
     50, // 40%
