@@ -57,18 +57,26 @@ const bool DEBUG_MODE = true;
 //     Conduction window too small for the LED driver to sustain operation.
 //     Bulb stays completely off.
 //
-//   WORKING LOW BAND:  setPower(23..58)  — confirmed OK by hardware scan.
+//   WORKING LOW BAND:  setPower(23..40)  — confirmed monotonically increasing.
 //     Maps to logical input range 1%..50%.
+//     NOTE: setPower(41-58) were initially labelled OK (bulb lit) but hardware
+//     testing revealed the brightness plateaus at setPower(50) == setPower(40)
+//     and then drops (setPower(60) is dimmer than setPower(40)). The root cause
+//     is the RBDDimmer powerBuf[] table being 50 Hz calibrated — the sinusoidal
+//     correction curve bunches up at 60 Hz, producing a flat/inverted region in
+//     the 41-64 range for this bulb. DIM_LOW_END is capped at 40 to stay safely
+//     within the confirmed monotonic region.
 //
-//   Zone C — bulb-specific dead zone  (setPower 59-64):
-//     LED driver cuts out at these phase angles. Hardware-specific; not a
-//     library issue. Bulb off for all values 59, 60, 61, 62, 63, 64.
-//     FIX: high band starts at 65, jumping cleanly over the dead zone.
+//   Zone C — non-monotonic plateau/dip region  (setPower 41-64):
+//     41-58: bulb lit but brightness plateaus — no meaningful increase above 40.
+//     59:    dead (bulb off).
+//     60:    bulb lit but LOWER brightness than setPower(40) — reverse effect.
+//     61-64: dead (bulb off).
+//     This entire range is unusable for monotonic control.
+//     FIX: high band starts at 65, jumping cleanly over the entire region.
 //
 //   WORKING HIGH BAND:  setPower(65..99)  — confirmed OK by hardware scan.
 //     Maps to logical input range 51%..100%.
-//     NOTE: setPower(90-99) plateau — setPower(90) == setPower(99) in brightness.
-//     DIM_HIGH_END capped at 89 (last confirmed step before the plateau).
 //
 // MAPPING STRATEGY (implemented in mapBrightness() in main.cpp):
 //   Input  1%..50%  -> linearly interpolated across DIM_LOW_START..DIM_LOW_END
@@ -76,16 +84,16 @@ const bool DEBUG_MODE = true;
 //
 // MONOTONICITY GUARANTEE:
 //   Linear interpolation within each ascending band is always non-decreasing.
-//   At the boundary: output(50%) = DIM_LOW_END = 58,
+//   At the boundary: output(50%) = DIM_LOW_END = 40,
 //                    output(51%) = DIM_HIGH_START = 65.
-//   65 > 58, so the output sequence never drops at the crossover.
-//   No output value ever falls inside a dead zone.
+//   65 > 40, so the output sequence never drops at the crossover.
+//   No output value ever falls inside a dead or non-monotonic zone.
 //
 // To calibrate for a different bulb: adjust only the four constants below
 // and reflash. The monotonicity guarantee holds for any values where
-// DIM_LOW_END < DIM_HIGH_START and both bands avoid the dead zones.
+// DIM_LOW_END < DIM_HIGH_START and both bands are confirmed monotonic.
 //
 const uint8_t DIM_LOW_START = 23;  // low  band start — logical  1%
-const uint8_t DIM_LOW_END = 58;    // low  band end   — logical 50%
+const uint8_t DIM_LOW_END = 40;    // low  band end   — logical 50%  (last confirmed monotonic step)
 const uint8_t DIM_HIGH_START = 65; // high band start — logical 51%
-const uint8_t DIM_HIGH_END = 89;   // high band end   — logical 100% (90-99 plateau — capped at 89)
+const uint8_t DIM_HIGH_END = 99;   // high band end   — logical 100%
