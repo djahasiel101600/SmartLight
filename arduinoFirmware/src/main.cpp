@@ -30,7 +30,7 @@ const int FADE_STEP_SIZE = 2;
 const int FADE_DELAY_MS = 20;
 
 unsigned long blinkUntil = 0;
-const bool DEBUG_MODE = false;
+const bool DEBUG_MODE = true;
 
 // =============================================================================
 // BRIGHTNESS LOOKUP TABLE  (60 Hz calibration)
