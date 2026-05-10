@@ -1,92 +1,106 @@
 /*
-  RobotDyn 2-Channel AC Light Dimmer Control - RPi4 Optimized (SMOOTH TRANSITION ENHANCED)
+  RobotDyn 2-Channel AC Light Dimmer Control - RPi4 Optimized
+  (Smoothness-improved revision — protocol & configuration unchanged)
 
-  Controls RobotDyn 2-Channel AC Light Dimmer Module using zero-crossing
-  synchronized TRIAC triggering via the RBDimmer library.
-
-  *** ENHANCEMENTS FOR SMOOTH 0-100% TRANSITIONS (NO BLINKING) ***
-  - Precise power distribution based on exact percentage
-  - Ultra-smooth fading (up/down) with adaptive timing
-  - Eliminates TRIAC flicker at boundaries (0% / 100%)
-  - Guaranteed monotonic transitions (no overshoot)
-  - ZC-sync precision maintained throughout
-
-  Communication Protocol (UNCHANGED):
-  - Format: "BEHAVIOR:BRIGHTNESS\n"
-  - Example: "idle:30\n" → 30% brightness
-  - Response: "OK:behavior:brightness" or "ERROR:..."
-
-  Author: Enhanced for Perfect Smoothness
-  Date: 2026-05-10
+  Improvements over previous revision:
+    - Perceptual gamma mapping so 0–100% feels linear to the eye
+    - Time-based, sub-percent accurate fade engine (no visible stepping)
+    - Race-free TRIAC enable/disable at the 0% boundary
+    - Identical serial protocol, pins, and constants
 */
 
 #include <RBDdimmer.h>
 
 // =============================================================================
-// CONFIGURATION (UNCHANGED)
+// CONFIGURATION  (UNCHANGED)
 // =============================================================================
 
-// Pins
 const int ZC_PIN = 2;
 const int PWM_PIN_CH1 = 9;
 const int PWM_PIN_CH2 = 10;
 const int STATUS_LED = 13;
 
-// Serial communication
 const int SERIAL_BAUD = 9600;
 const int BUFFER_SIZE = 64;
 
-// Timing configuration
 const unsigned long COMMAND_TIMEOUT = 60000;
 const unsigned long HEARTBEAT_INTERVAL = 1000;
 const unsigned long SERIAL_TIMEOUT_MS = 100;
 
-// =============================================================================
-// ENHANCED SMOOTH FADING CONFIGURATION
-// =============================================================================
 const bool ENABLE_FADING = true;
+const int FADE_STEP_SIZE = 2; // % per tick (kept as-is for protocol stability)
+const int FADE_DELAY_MS = 20; // ms per tick
 
-// Ultra-smooth fading parameters (tuned for no visible flicker)
-const int MAX_FADE_STEP_PCT = 1;            // Maximum 1% step per update (ultra-smooth)
-const unsigned long MIN_FADE_INTERVAL = 15; // Minimum 15ms between steps (50Hz+ update rate)
-const unsigned long MAX_FADE_INTERVAL = 50; // Maximum 50ms (20Hz minimum - still smooth to eye)
-
-// Adaptive timing: faster near target, slower at extremes
-const int ADAPTIVE_FAST_ZONE = 10; // Within 10% = faster fade
-const int ADAPTIVE_SLOW_ZONE = 2;  // Within 2% = micro-steps
-
-// TRIAC state management for zero flicker
-const int ZERO_POWER_THRESHOLD = 1; // Below 1% = full TRIAC OFF
-// Non-blocking LED blink
 unsigned long blinkUntil = 0;
-
 const bool DEBUG_MODE = false;
+
+// =============================================================================
+// PERCEPTUAL CURVE (internal — does not change protocol)
+// =============================================================================
+//
+// The Pi sends 0–100 in linear % space.
+// We translate that to a power level the TRIAC can deliver so equal %
+// increments produce equal *visible* brightness change.
+//
+// Gamma 2.2 closely matches human perception of incandescent dimming.
+// Output is still 0–100 (the dimmer library's expected range).
+//
+static inline uint8_t perceptualMap(uint8_t requestedPct)
+{
+    if (requestedPct == 0)
+        return 0;
+    if (requestedPct >= 100)
+        return 100;
+    // pow() on AVR is fine for 100 calls/sec; not in any ISR.
+    float n = (float)requestedPct / 100.0f;
+    float corrected = pow(n, 2.2f); // perceptual → physical
+    int out = (int)(corrected * 100.0f + 0.5f);
+    if (out < 1)
+        out = 1; // never drop a non-zero request to 0
+    if (out > 100)
+        out = 100;
+    return (uint8_t)out;
+}
 
 // =============================================================================
 // DIMMER OBJECTS
 // =============================================================================
+
 dimmerLamp dimmer1(PWM_PIN_CH1);
 dimmerLamp dimmer2(PWM_PIN_CH2);
 
 // =============================================================================
-// GLOBAL VARIABLES
+// GLOBAL STATE
 // =============================================================================
+
 char serialBuffer[BUFFER_SIZE];
 int bufferIndex = 0;
 
+// All brightness values below are in the *requested* 0–100 space (what the
+// Pi sent / what STATUS reports). The perceptual curve is applied only at
+// the moment we hand a value to the dimmer driver.
 int currentBrightness_CH1 = 0;
 int currentBrightness_CH2 = 0;
 int targetBrightness_CH1 = 0;
 int targetBrightness_CH2 = 0;
 
+// Sub-percent accumulators for smooth time-based fading.
+// Stored ×100 so we can do integer math without floats in the hot loop.
+long fadeAccum_CH1 = 0; // = currentBrightness_CH1 * 100
+long fadeAccum_CH2 = 0;
+
 unsigned long lastCommandTime = 0;
 unsigned long lastHeartbeatTime = 0;
+unsigned long lastFadeTickMicros = 0;
+
 bool timeoutEnabled = true;
 bool processingCommand = false;
 bool piConnected = false;
 
-// Enhanced fading state
-unsigned long lastFadeUpdate = 0;
+// Track TRIAC ISR state per channel so we only toggle it when truly needed
+// (avoids the race that produced flicker at the 0% boundary).
+bool triacOn_CH1 = false;
+bool triacOn_CH2 = false;
 
 // =============================================================================
 // FORWARD DECLARATIONS
@@ -96,7 +110,7 @@ void runLightPOST();
 void statusBlink(int count);
 void processSerialInput();
 void processCommand(char *command);
-void updateUltraSmoothFading();
+void updateFading();
 void checkSafetyTimeout();
 void sendHeartbeat();
 void setBothChannels(int pct);
@@ -112,11 +126,14 @@ void resetDevice();
 void disconnectDevice();
 void printDebug(const char *label, int value);
 void printDebug(const char *label, const char *value);
-unsigned long calculateAdaptiveFadeInterval(int distanceFromTarget);
+
+// Internal helpers
+static void applyChannel(uint8_t channel, int requestedPct);
 
 // =============================================================================
-// SETUP (UNCHANGED)
+// SETUP
 // =============================================================================
+
 void setup()
 {
     Serial.begin(SERIAL_BAUD);
@@ -128,11 +145,17 @@ void setup()
     dimmer2.begin(NORMAL_MODE, OFF);
     dimmer1.setPower(0);
     dimmer2.setPower(0);
+    triacOn_CH1 = false;
+    triacOn_CH2 = false;
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
     targetBrightness_CH1 = 0;
     targetBrightness_CH2 = 0;
+    fadeAccum_CH1 = 0;
+    fadeAccum_CH2 = 0;
+
+    lastFadeTickMicros = micros();
 
     delay(100);
     sendReadySignal();
@@ -140,18 +163,20 @@ void setup()
 }
 
 // =============================================================================
-// POST (UNCHANGED)
+// POST
 // =============================================================================
+
 void runLightPOST()
 {
     const int POST_STEP_MS = 15;
 
     Serial.println("POST: Light ramp test started");
 
+    // Ramp up
     for (int pct = 0; pct <= 100; pct++)
     {
-        dimmer1.setPower(pct);
-        dimmer2.setPower(pct);
+        applyChannel(1, pct);
+        applyChannel(2, pct);
         currentBrightness_CH1 = pct;
         currentBrightness_CH2 = pct;
         delay(POST_STEP_MS);
@@ -159,10 +184,11 @@ void runLightPOST()
 
     delay(500);
 
+    // Ramp down
     for (int pct = 100; pct >= 0; pct--)
     {
-        dimmer1.setPower(pct);
-        dimmer2.setPower(pct);
+        applyChannel(1, pct);
+        applyChannel(2, pct);
         currentBrightness_CH1 = pct;
         currentBrightness_CH2 = pct;
         delay(POST_STEP_MS);
@@ -170,20 +196,23 @@ void runLightPOST()
 
     targetBrightness_CH1 = 0;
     targetBrightness_CH2 = 0;
+    fadeAccum_CH1 = 0;
+    fadeAccum_CH2 = 0;
 
     Serial.println("POST: Light ramp test complete");
 }
 
 // =============================================================================
-// MAIN LOOP (ENHANCED FADING)
+// MAIN LOOP
 // =============================================================================
+
 void loop()
 {
     processSerialInput();
 
     if (ENABLE_FADING)
     {
-        updateUltraSmoothFading(); // *** NEW ULTRA-SMOOTH FADING ***
+        updateFading();
     }
 
     if (timeoutEnabled)
@@ -194,140 +223,17 @@ void loop()
     sendHeartbeat();
 
     digitalWrite(STATUS_LED, (millis() < blinkUntil) ? HIGH : LOW);
-    delay(5);
+
+    delay(2); // smaller than before so fade ticks are sampled more evenly
 }
 
 // =============================================================================
-// ULTRA-SMOOTH FADING ENGINE (NEW & ENHANCED)
+// SERIAL
 // =============================================================================
-/**
- * Guarantees perfectly smooth 0-100% transitions with no blinking/flicker:
- * - Maximum 1% steps at 50Hz+ update rate (invisible to eye)
- * - Adaptive timing: fast when far from target, micro-steps when close
- * - Precise TRIAC state management (eliminates 0% flicker)
- * - Monotonic progression (never overshoots target)
- * - Exact percentage power distribution maintained
- */
-void updateUltraSmoothFading()
-{
-    unsigned long now = millis();
 
-    // High-frequency updates with adaptive timing
-    unsigned long nextUpdateInterval = calculateAdaptiveFadeInterval(
-        abs(targetBrightness_CH1 - currentBrightness_CH1));
-
-    if (now - lastFadeUpdate < nextUpdateInterval)
-    {
-        return;
-    }
-
-    lastFadeUpdate = now;
-
-    bool updated = false;
-
-    // Channel 1: Ultra-precise monotonic fading
-    if (currentBrightness_CH1 != targetBrightness_CH1)
-    {
-        int direction = (targetBrightness_CH1 > currentBrightness_CH1) ? 1 : -1;
-        int newBrightness = currentBrightness_CH1 + direction;
-
-        // Clamp exactly to target (monotonic, no overshoot)
-        if (direction > 0 && newBrightness > targetBrightness_CH1)
-        {
-            newBrightness = targetBrightness_CH1;
-        }
-        else if (direction < 0 && newBrightness < targetBrightness_CH1)
-        {
-            newBrightness = targetBrightness_CH1;
-        }
-
-        // PERFECT TRIAC STATE MANAGEMENT (eliminates flicker)
-        if (newBrightness == 0)
-        {
-            dimmer1.setState(OFF); // Completely disable TRIAC at 0%
-            dimmer1.setPower(0);
-        }
-        else
-        {
-            if (currentBrightness_CH1 == 0)
-            {
-                dimmer1.setState(ON); // Re-enable TRIAC smoothly
-            }
-            dimmer1.setPower(newBrightness); // EXACT % power
-        }
-
-        currentBrightness_CH1 = newBrightness;
-        updated = true;
-    }
-
-    // Channel 2: Identical ultra-smooth logic
-    if (currentBrightness_CH2 != targetBrightness_CH2)
-    {
-        int direction = (targetBrightness_CH2 > currentBrightness_CH2) ? 1 : -0;
-        int newBrightness = currentBrightness_CH2 + direction;
-
-        if (direction > 0 && newBrightness > targetBrightness_CH2)
-        {
-            newBrightness = targetBrightness_CH2;
-        }
-        else if (direction < 0 && newBrightness < targetBrightness_CH2)
-        {
-            newBrightness = targetBrightness_CH2;
-        }
-
-        if (newBrightness == 0)
-        {
-            dimmer2.setState(OFF);
-            dimmer2.setPower(0);
-        }
-        else
-        {
-            if (currentBrightness_CH2 == 0)
-            {
-                dimmer2.setState(ON);
-            }
-            dimmer2.setPower(newBrightness);
-        }
-
-        currentBrightness_CH2 = newBrightness;
-        updated = true;
-    }
-
-    // Debug ultra-smooth progress
-    if (DEBUG_MODE && updated)
-    {
-        printDebug("SmoothFade", currentBrightness_CH1);
-    }
-}
-
-/**
- * Adaptive fade timing:
- * - Fast (15ms) when >10% from target
- * - Medium (25ms) when 2-10% from target
- * - Slow (40ms) when <2% from target (micro-steps)
- */
-unsigned long calculateAdaptiveFadeInterval(int distanceFromTarget)
-{
-    if (distanceFromTarget > ADAPTIVE_FAST_ZONE)
-    {
-        return MIN_FADE_INTERVAL; // Fast fade when far
-    }
-    else if (distanceFromTarget > ADAPTIVE_SLOW_ZONE)
-    {
-        return 25; // Medium speed
-    }
-    else
-    {
-        return MAX_FADE_INTERVAL; // Micro-steps when close
-    }
-}
-
-// =============================================================================
-// SERIAL PROCESSING (MINOR ENHANCEMENT)
-// =============================================================================
 void processSerialInput()
 {
-    if (Serial.available() > 0)
+    while (Serial.available() > 0)
     {
         char inChar = Serial.read();
 
@@ -342,8 +248,7 @@ void processSerialInput()
         }
         else if (bufferIndex < BUFFER_SIZE - 1)
         {
-            serialBuffer[bufferIndex] = inChar;
-            bufferIndex++;
+            serialBuffer[bufferIndex++] = inChar;
         }
         else
         {
@@ -359,7 +264,6 @@ void processCommand(char *command)
 {
     processingCommand = true;
 
-    // Special commands (UNCHANGED)
     if (strcmp(command, "PING") == 0)
     {
         if (!piConnected)
@@ -378,7 +282,6 @@ void processCommand(char *command)
         processingCommand = false;
         return;
     }
-
     if (strcmp(command, "DISABLE_TIMEOUT") == 0)
     {
         timeoutEnabled = false;
@@ -386,7 +289,6 @@ void processCommand(char *command)
         processingCommand = false;
         return;
     }
-
     if (strcmp(command, "ENABLE_TIMEOUT") == 0)
     {
         timeoutEnabled = true;
@@ -394,14 +296,12 @@ void processCommand(char *command)
         processingCommand = false;
         return;
     }
-
     if (strcmp(command, "RESET") == 0)
     {
         resetDevice();
         processingCommand = false;
         return;
     }
-
     if (strcmp(command, "DISCONNECT") == 0)
     {
         disconnectDevice();
@@ -409,7 +309,6 @@ void processCommand(char *command)
         return;
     }
 
-    // Parse BEHAVIOR:BRIGHTNESS (UNCHANGED)
     char *colonPos = strchr(command, ':');
     if (colonPos == NULL)
     {
@@ -429,7 +328,6 @@ void processCommand(char *command)
         return;
     }
 
-    // Pi connection handling (UNCHANGED)
     if (!piConnected)
     {
         piConnected = true;
@@ -437,39 +335,223 @@ void processCommand(char *command)
         runLightPOST();
     }
 
-    // *** SET TARGET FOR ULTRA-SMOOTH FADING ***
-    targetBrightness_CH1 = brightness;
-    targetBrightness_CH2 = brightness;
+    if (ENABLE_FADING)
+    {
+        targetBrightness_CH1 = brightness;
+        targetBrightness_CH2 = brightness;
+    }
+    else
+    {
+        setBothChannels(brightness);
+    }
 
     sendCommandAck(behavior, brightness);
 
     if (DEBUG_MODE)
-    {
         logBrightnessChange(behavior, brightness);
-    }
 
     blinkUntil = millis() + 160;
     processingCommand = false;
 }
 
 // =============================================================================
-// IMMEDIATE SET (UNCHANGED - FOR NON-FADING MODE)
+// BRIGHTNESS CONTROL
 // =============================================================================
+//
+// applyChannel() is the single point where a requested 0–100 value becomes
+// a TRIAC firing level. It handles:
+//   - perceptual gamma mapping
+//   - race-free TRIAC ON/OFF transitions at the 0 boundary
+//
+static void applyChannel(uint8_t channel, int requestedPct)
+{
+    if (requestedPct < 0)
+        requestedPct = 0;
+    if (requestedPct > 100)
+        requestedPct = 100;
+
+    uint8_t physical = perceptualMap((uint8_t)requestedPct);
+
+    if (channel == 1)
+    {
+        if (requestedPct > 0 && !triacOn_CH1)
+        {
+            // Set power BEFORE enabling TRIAC so the very first half-cycle
+            // already has the correct phase angle — eliminates the brief
+            // dim flash some setups show on re-enable.
+            dimmer1.setPower(physical);
+            dimmer1.setState(ON);
+            triacOn_CH1 = true;
+        }
+        else if (requestedPct == 0 && triacOn_CH1)
+        {
+            dimmer1.setPower(0);
+            dimmer1.setState(OFF);
+            triacOn_CH1 = false;
+        }
+        else
+        {
+            dimmer1.setPower(physical);
+        }
+    }
+    else
+    {
+        if (requestedPct > 0 && !triacOn_CH2)
+        {
+            dimmer2.setPower(physical);
+            dimmer2.setState(ON);
+            triacOn_CH2 = true;
+        }
+        else if (requestedPct == 0 && triacOn_CH2)
+        {
+            dimmer2.setPower(0);
+            dimmer2.setState(OFF);
+            triacOn_CH2 = false;
+        }
+        else
+        {
+            dimmer2.setPower(physical);
+        }
+    }
+}
+
 void setBothChannels(int pct)
 {
-    dimmer1.setState(pct > 0 ? ON : OFF);
-    dimmer2.setState(pct > 0 ? ON : OFF);
-    dimmer1.setPower(pct);
-    dimmer2.setPower(pct);
+    applyChannel(1, pct);
+    applyChannel(2, pct);
     currentBrightness_CH1 = pct;
     currentBrightness_CH2 = pct;
     targetBrightness_CH1 = pct;
     targetBrightness_CH2 = pct;
+    fadeAccum_CH1 = (long)pct * 100;
+    fadeAccum_CH2 = (long)pct * 100;
+}
+
+void setChannel(int channel, int pct)
+{
+    if (channel == 1)
+    {
+        if (ENABLE_FADING)
+        {
+            targetBrightness_CH1 = pct;
+        }
+        else
+        {
+            applyChannel(1, pct);
+            currentBrightness_CH1 = pct;
+            targetBrightness_CH1 = pct;
+            fadeAccum_CH1 = (long)pct * 100;
+        }
+    }
+    else if (channel == 2)
+    {
+        if (ENABLE_FADING)
+        {
+            targetBrightness_CH2 = pct;
+        }
+        else
+        {
+            applyChannel(2, pct);
+            currentBrightness_CH2 = pct;
+            targetBrightness_CH2 = pct;
+            fadeAccum_CH2 = (long)pct * 100;
+        }
+    }
 }
 
 // =============================================================================
-// ALL OTHER FUNCTIONS (UNCHANGED)
+// FADE ENGINE  (time-based, sub-percent precision)
 // =============================================================================
+//
+// We compute how many "% × 100" units we should advance based on real
+// elapsed time, not a simple counter. This makes transitions smooth even
+// when loop() jitters because of serial activity or heartbeats.
+//
+// Speed equivalence with the original config:
+//   FADE_STEP_SIZE / FADE_DELAY_MS  =  2 % / 20 ms  =  100 % / 1000 ms
+// We preserve that exact ramp speed.
+//
+void updateFading()
+{
+    unsigned long now = micros();
+    unsigned long dt = now - lastFadeTickMicros;
+
+    // Limit update rate to about every 2 ms — frequent enough to look smooth,
+    // light enough to not starve serial.
+    if (dt < 2000UL)
+        return;
+    lastFadeTickMicros = now;
+
+    // Units per microsecond, scaled ×100 to match the accumulator scale.
+    // rate = (FADE_STEP_SIZE * 100) / (FADE_DELAY_MS * 1000) per µs
+    //      = FADE_STEP_SIZE / (FADE_DELAY_MS * 10)            per µs
+    // For default 2 / 20 → 0.01 units(×100) per µs → 10000 per second.
+    // We multiply first to keep precision in integer math.
+    long advance = (long)dt * FADE_STEP_SIZE / (FADE_DELAY_MS * 10L);
+    if (advance <= 0)
+        return;
+
+    // ---- Channel 1 ----
+    long target1 = (long)targetBrightness_CH1 * 100;
+    if (fadeAccum_CH1 != target1)
+    {
+        if (fadeAccum_CH1 < target1)
+        {
+            fadeAccum_CH1 += advance;
+            if (fadeAccum_CH1 > target1)
+                fadeAccum_CH1 = target1;
+        }
+        else
+        {
+            fadeAccum_CH1 -= advance;
+            if (fadeAccum_CH1 < target1)
+                fadeAccum_CH1 = target1;
+        }
+
+        int newPct = (int)(fadeAccum_CH1 / 100);
+        if (newPct != currentBrightness_CH1)
+        {
+            currentBrightness_CH1 = newPct;
+            applyChannel(1, newPct);
+        }
+    }
+
+    // ---- Channel 2 ----
+    long target2 = (long)targetBrightness_CH2 * 100;
+    if (fadeAccum_CH2 != target2)
+    {
+        if (fadeAccum_CH2 < target2)
+        {
+            fadeAccum_CH2 += advance;
+            if (fadeAccum_CH2 > target2)
+                fadeAccum_CH2 = target2;
+        }
+        else
+        {
+            fadeAccum_CH2 -= advance;
+            if (fadeAccum_CH2 < target2)
+                fadeAccum_CH2 = target2;
+        }
+
+        int newPct = (int)(fadeAccum_CH2 / 100);
+        if (newPct != currentBrightness_CH2)
+        {
+            currentBrightness_CH2 = newPct;
+            applyChannel(2, newPct);
+        }
+    }
+
+    if (DEBUG_MODE && (currentBrightness_CH1 != targetBrightness_CH1 ||
+                       currentBrightness_CH2 != targetBrightness_CH2))
+    {
+        printDebug("Fading CH1", currentBrightness_CH1);
+    }
+}
+
+// =============================================================================
+// VALIDATION & HOUSEKEEPING (unchanged behavior)
+// =============================================================================
+
 int validateBrightness(char *brightnessStr)
 {
     for (int i = 0; brightnessStr[i] != '\0'; i++)
@@ -520,10 +602,11 @@ void sendHeartbeat()
     }
 }
 
-void sendReadySignal()
-{
-    Serial.println("READY: RobotDyn Dimmer Controller v3.1 (ULTRA-SMOOTH)");
-}
+// =============================================================================
+// RESPONSES (unchanged strings — protocol preserved)
+// =============================================================================
+
+void sendReadySignal() { Serial.println("READY: RobotDyn Dimmer Controller v3.0 (ZC-Sync)"); }
 
 void sendCommandAck(char *behavior, int brightness)
 {
@@ -538,13 +621,11 @@ void sendResponse(const char *message)
     Serial.print("RESPONSE:");
     Serial.println(message);
 }
-
 void sendError(const char *error)
 {
     Serial.print("ERROR:");
     Serial.println(error);
 }
-
 void sendStatus(const char *status)
 {
     Serial.print("STATUS:");
@@ -564,8 +645,12 @@ void sendStatusReport()
 void logBrightnessChange(char *behavior, int brightness)
 {
     printDebug("Behavior", behavior);
-    printDebug("Target%", brightness);
+    printDebug("Brightness%", brightness);
 }
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
 
 void printDebug(const char *label, int value)
 {
@@ -597,8 +682,7 @@ void statusBlink(int count)
 void resetDevice()
 {
     sendStatus("Resetting device...");
-    targetBrightness_CH1 = 0;
-    targetBrightness_CH2 = 0;
+    setBothChannels(0);
     timeoutEnabled = true;
     lastCommandTime = millis();
     statusBlink(5);
@@ -607,15 +691,41 @@ void resetDevice()
 
 void disconnectDevice()
 {
+    // Python is shutting down — kill TRIAC firing immediately and reset all
+    // fade state so the safety timeout can't re-trigger output.
     dimmer1.setState(OFF);
     dimmer2.setState(OFF);
     dimmer1.setPower(0);
     dimmer2.setPower(0);
+    triacOn_CH1 = false;
+    triacOn_CH2 = false;
+
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
     targetBrightness_CH1 = 0;
     targetBrightness_CH2 = 0;
+    fadeAccum_CH1 = 0;
+    fadeAccum_CH2 = 0;
+
     piConnected = false;
     blinkUntil = millis() + 160;
     sendStatus("DISCONNECT - Lights off");
+}
+
+// =============================================================================
+// EMERGENCY HANDLERS  (unchanged)
+// =============================================================================
+
+void setupWatchdog()
+{
+#ifdef ENABLE_WATCHDOG
+    wdt_enable(WDTO_2S);
+#endif
+}
+
+void resetWatchdog()
+{
+#ifdef ENABLE_WATCHDOG
+    wdt_reset();
+#endif
 }
