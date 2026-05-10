@@ -126,9 +126,12 @@ void setup()
 
     pinMode(STATUS_LED, OUTPUT);
 
-    // Initialize dimmers — library attaches ZC interrupt on ZC_PIN internally
-    dimmer1.begin(NORMAL_MODE, ON);
-    dimmer2.begin(NORMAL_MODE, ON);
+    // Initialize dimmers — library attaches ZC interrupt on ZC_PIN internally.
+    // Use OFF state so the TRIAC ISR is completely disabled at startup;
+    // setPower(0) alone is insufficient — the ISR still runs and can produce
+    // faint 100/120 Hz pulses that make the bulb flicker before Python connects.
+    dimmer1.begin(NORMAL_MODE, OFF);
+    dimmer2.begin(NORMAL_MODE, OFF);
     dimmer1.setPower(0);
     dimmer2.setPower(0);
 
@@ -380,6 +383,12 @@ void processCommand(char *command)
 
 void setBothChannels(int pct)
 {
+    // setState(OFF) at zero completely stops TRIAC firing.
+    // setState(ON)  at non-zero re-enables it before setting power.
+    // This prevents the faint flicker that occurs when the ISR is active
+    // but setPower(0) is set.
+    dimmer1.setState(pct > 0 ? ON : OFF);
+    dimmer2.setState(pct > 0 ? ON : OFF);
     dimmer1.setPower(pct);
     dimmer2.setPower(pct);
     currentBrightness_CH1 = pct;
@@ -398,6 +407,7 @@ void setChannel(int channel, int pct)
         }
         else
         {
+            dimmer1.setState(pct > 0 ? ON : OFF);
             dimmer1.setPower(pct);
             currentBrightness_CH1 = pct;
             targetBrightness_CH1 = pct;
@@ -411,6 +421,7 @@ void setChannel(int channel, int pct)
         }
         else
         {
+            dimmer2.setState(pct > 0 ? ON : OFF);
             dimmer2.setPower(pct);
             currentBrightness_CH2 = pct;
             targetBrightness_CH2 = pct;
@@ -433,6 +444,13 @@ void updateFading()
     if (currentBrightness_CH1 != targetBrightness_CH1)
     {
         int step = (targetBrightness_CH1 > currentBrightness_CH1) ? FADE_STEP_SIZE : -FADE_STEP_SIZE;
+
+        // Enable TRIAC output when starting to ramp up from zero
+        if (step > 0 && currentBrightness_CH1 == 0)
+        {
+            dimmer1.setState(ON);
+        }
+
         currentBrightness_CH1 += step;
 
         // Clamp to target
@@ -443,12 +461,25 @@ void updateFading()
         }
 
         dimmer1.setPower(currentBrightness_CH1);
+
+        // Fully disable TRIAC output when fading down to zero
+        if (currentBrightness_CH1 == 0)
+        {
+            dimmer1.setState(OFF);
+        }
     }
 
     // Channel 2
     if (currentBrightness_CH2 != targetBrightness_CH2)
     {
         int step = (targetBrightness_CH2 > currentBrightness_CH2) ? FADE_STEP_SIZE : -FADE_STEP_SIZE;
+
+        // Enable TRIAC output when starting to ramp up from zero
+        if (step > 0 && currentBrightness_CH2 == 0)
+        {
+            dimmer2.setState(ON);
+        }
+
         currentBrightness_CH2 += step;
 
         if ((step > 0 && currentBrightness_CH2 > targetBrightness_CH2) ||
@@ -458,6 +489,12 @@ void updateFading()
         }
 
         dimmer2.setPower(currentBrightness_CH2);
+
+        // Fully disable TRIAC output when fading down to zero
+        if (currentBrightness_CH2 == 0)
+        {
+            dimmer2.setState(OFF);
+        }
     }
 
     if (DEBUG_MODE && (currentBrightness_CH1 != targetBrightness_CH1 ||
@@ -623,11 +660,19 @@ void disconnectDevice()
     // Python is shutting down — fade lights off and mark Pi as disconnected.
     // This prevents the 60 s safety timeout from keeping the light on after
     // a graceful Python exit.
+    // Also immediately call setState(OFF) so the TRIAC ISR stops firing right
+    // away rather than waiting for the fade loop to reach 0.
+    dimmer1.setState(OFF);
+    dimmer2.setState(OFF);
+    dimmer1.setPower(0);
+    dimmer2.setPower(0);
+    currentBrightness_CH1 = 0;
+    currentBrightness_CH2 = 0;
     targetBrightness_CH1 = 0;
     targetBrightness_CH2 = 0;
     piConnected = false;
     blinkUntil = millis() + 160;
-    sendStatus("DISCONNECT - Lights fading off");
+    sendStatus("DISCONNECT - Lights off");
 }
 
 // =============================================================================
