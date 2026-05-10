@@ -5,66 +5,18 @@
     - begin(NORMAL_MODE, ON)  — ISR runs continuously, setPower(0) = light off
     - setPower() is the only brightness control call; setState() never used
     - ENABLE_FADING = false for direct 0-100% testing (set true after verified)
+
+  Configuration: edit src/config.h — do not change constants in this file.
 */
 
 #include <RBDdimmer.h>
+#include "config.h"
 
 // =============================================================================
-// CONFIGURATION  (UNCHANGED)
+// RUNTIME STATE  (not configurable — do not move to config.h)
 // =============================================================================
-
-const int ZC_PIN = 2;
-const int PWM_PIN_CH1 = 9;
-const int PWM_PIN_CH2 = 10;
-const int STATUS_LED = 13;
-
-const int SERIAL_BAUD = 9600;
-const int BUFFER_SIZE = 64;
-
-const unsigned long COMMAND_TIMEOUT = 60000;
-const unsigned long HEARTBEAT_INTERVAL = 1000;
-const unsigned long SERIAL_TIMEOUT_MS = 100;
-
-const bool ENABLE_FADING = false; // Set true after 10-step brightness test passes
-const int FADE_STEP_SIZE = 2;
-const int FADE_DELAY_MS = 20;
 
 unsigned long blinkUntil = 0;
-const bool DEBUG_MODE = true;
-
-// =============================================================================
-// BRIGHTNESS LOOKUP TABLE  (60 Hz calibration)
-// =============================================================================
-//
-// The RBDDimmer powerBuf[] is tuned for 50 Hz (625 timer ticks per half-cycle).
-// At 60 Hz there are only ~520 ticks, so setPower(0-14) never fires the TRIAC
-// (powerBuf[0-14] = 526-600, all > 520) — those inputs produce no light.
-// setPower(16) gives powerBuf[16] = 514, safely within the 60 Hz window.
-//
-// Additionally, some LED drivers have narrow dead zones at specific phase-cut
-// angles (reported: setPower(50) and setPower(80) turn the bulb off).
-//
-// This table maps the 11 logical levels (0%, 10%, … 100%) to safe setPower()
-// values that avoid both the 60 Hz cutoff and the known LED dead zones.
-// Values in between are linearly interpolated by mapBrightness().
-//
-// TUNING: adjust any entry if a level appears off/wrong on your bulb.
-// Use the serial command  RAW:<n>  to test individual setPower(n) values live
-// without reflashing firmware (e.g. send "RAW:54" → setPower(54) directly).
-//
-static const uint8_t BRIGHTNESS_LUT[11] = {
-    0,  // 0%  → explicit off  (always 0)
-    16, // 10% → first reliable level at 60 Hz (powerBuf[16] = 514 < 520)
-    26, // 20%
-    35, // 30%
-    44, // 40%
-    54, // 50% → shifted +4 to skip setPower(50) dead zone
-    63, // 60%
-    72, // 70%
-    84, // 80% → shifted +4 to skip setPower(80) dead zone
-    91, // 90%
-    99, // 100% (library internally clamps ≥99 → 99)
-};
 
 // =============================================================================
 // DIMMER OBJECTS
