@@ -158,6 +158,24 @@ class DimmerManager:
             return False
 
     # ------------------------------------------------------------------
+    def disconnect(self) -> None:
+        """
+        Notify the Arduino that Python is shutting down so it fades the
+        lights off immediately rather than waiting for the 60 s safety timeout.
+        """
+        if not self._available or self._controller is None:
+            return
+        try:
+            self._controller.ser.write(b"DISCONNECT\n")
+            # Small pause so the Arduino can process the command before the
+            # serial port is closed (which triggers an Arduino reset anyway).
+            import time as _time
+            _time.sleep(0.2)
+            print("[Dimmer] Disconnect signal sent — lights fading off.")
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     @property
     def is_available(self) -> bool:
         return self._available

@@ -393,6 +393,7 @@ def run(headless: bool = config.HEADLESS) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        dimmer.disconnect()
         camera.stop()
         roi_extractor.close()
         if not headless:

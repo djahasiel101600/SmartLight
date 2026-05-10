@@ -111,6 +111,7 @@ void sendStatus(const char *status);
 void sendStatusReport();
 void logBrightnessChange(char *behavior, int brightness);
 void resetDevice();
+void disconnectDevice();
 void printDebug(const char *label, int value);
 void printDebug(const char *label, const char *value);
 
@@ -265,6 +266,13 @@ void processCommand(char *command)
     // Handle special commands first
     if (strcmp(command, "PING") == 0)
     {
+        // A PING from an already-running Pi also re-establishes connection
+        // if the Arduino was rebooted while Python was still running.
+        if (!piConnected)
+        {
+            piConnected = true;
+            Serial.println("STATUS: Pi reconnected via PING");
+        }
         sendResponse("PONG");
         processingCommand = false;
         return;
@@ -296,6 +304,13 @@ void processCommand(char *command)
     if (strcmp(command, "RESET") == 0)
     {
         resetDevice();
+        processingCommand = false;
+        return;
+    }
+
+    if (strcmp(command, "DISCONNECT") == 0)
+    {
+        disconnectDevice();
         processingCommand = false;
         return;
     }
@@ -601,6 +616,18 @@ void resetDevice()
     lastCommandTime = millis();
     statusBlink(5);
     sendStatus("Device reset complete");
+}
+
+void disconnectDevice()
+{
+    // Python is shutting down — fade lights off and mark Pi as disconnected.
+    // This prevents the 60 s safety timeout from keeping the light on after
+    // a graceful Python exit.
+    targetBrightness_CH1 = 0;
+    targetBrightness_CH2 = 0;
+    piConnected = false;
+    blinkUntil = millis() + 160;
+    sendStatus("DISCONNECT - Lights fading off");
 }
 
 // =============================================================================
