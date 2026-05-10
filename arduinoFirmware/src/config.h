@@ -83,15 +83,15 @@ const bool DEBUG_MODE = true;
 //   4. Adjust the failing entry here and reflash the main firmware.
 //
 static const uint8_t BRIGHTNESS_LUT[11] = {
-    0,    // 0%  -> OFF via setState(OFF); value never passed to setPower()
-    20,   // 10% -> low range start  (first confirmed dim level)
-    25.8, // 20%
-    31.6, // 30%
-    37.4, // 40%
-    43.2, // 50% -> low range end
-    54.8, // 60% -> high range start (skips dead zone 59-63)
-    60.6, // 70%
-    66.4, // 80%
-    78,   // 90%
-    99,   // 100%
+    0,  // 0%  -> OFF via setState(OFF); value never passed to setPower()
+    15, // 10% -> low range start  (first confirmed dim level)
+    20, // 20%
+    25, // 30%
+    30, // 40%
+    35, // 50% -> low range end
+    40, // 60% -> high range start (skips dead zone 59-63)
+    45, // 70%
+    50, // 80%
+    55, // 90%
+    58, // 100%
 };
