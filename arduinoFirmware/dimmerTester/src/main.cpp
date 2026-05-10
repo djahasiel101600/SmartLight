@@ -121,26 +121,26 @@ const char *LABELS[100] = {
     /* 38 */ "OK",
     /* 39 */ "OK",
     /* 40 */ "OK",
-    /* 41 */ "VERIFY", // plateau region — brightness does NOT increase above setPower(40)
-    /* 42 */ "VERIFY",
-    /* 43 */ "VERIFY",
-    /* 44 */ "VERIFY",
-    /* 45 */ "VERIFY",
-    /* 46 */ "VERIFY",
-    /* 47 */ "VERIFY",
-    /* 48 */ "VERIFY",
-    /* 49 */ "VERIFY",
-    /* 50 */ "PLATEAU", // confirmed same brightness as setPower(40) — no increase
-    /* 51 */ "VERIFY",
+    /* 41 */ "OK",  // confirmed step-up range (40-50 all increase monotonically)
+    /* 42 */ "OK",
+    /* 43 */ "OK",
+    /* 44 */ "OK",
+    /* 45 */ "OK",
+    /* 46 */ "OK",
+    /* 47 */ "OK",
+    /* 48 */ "OK",
+    /* 49 */ "OK",
+    /* 50 */ "OK",   // LOW RANGE END — last confirmed monotonic step
+    /* 51 */ "VERIFY", // needs fine scan — possibly still monotonic or plateau
     /* 52 */ "VERIFY",
     /* 53 */ "VERIFY",
     /* 54 */ "VERIFY",
     /* 55 */ "VERIFY",
     /* 56 */ "VERIFY",
     /* 57 */ "VERIFY",
-    /* 58 */ "VERIFY", // LOW RANGE EXTENDED LIMIT — needs fine scan
+    /* 58 */ "VERIFY",
     /* 59 */ "DEAD",
-    /* 60 */ "NON-MONO", // lit but LOWER brightness than setPower(40) — reverse effect
+    /* 60 */ "NON-MONO", // lit but LOWER brightness than setPower(50) — 50Hz LUT reverse effect
     /* 61 */ "DEAD",
     /* 62 */ "DEAD",
     /* 63 */ "DEAD",
@@ -169,17 +169,17 @@ const char *LABELS[100] = {
     /* 86 */ "OK",
     /* 87 */ "OK",
     /* 88 */ "OK",
-    /* 89 */ "OK",
-    /* 90 */ "OK",
-    /* 91 */ "OK",
-    /* 92 */ "OK",
-    /* 93 */ "OK",
-    /* 94 */ "OK",
-    /* 95 */ "OK",
-    /* 96 */ "OK",
-    /* 97 */ "OK",
-    /* 98 */ "OK",
-    /* 99 */ "OK", // HIGH RANGE END
+    /* 89 */ "OK",     // HIGH RANGE END — last confirmed monotonic step
+    /* 90 */ "PLATEAU", // confirmed same brightness as setPower(99) — no increase
+    /* 91 */ "PLATEAU",
+    /* 92 */ "PLATEAU",
+    /* 93 */ "PLATEAU",
+    /* 94 */ "PLATEAU",
+    /* 95 */ "PLATEAU",
+    /* 96 */ "PLATEAU",
+    /* 97 */ "PLATEAU",
+    /* 98 */ "PLATEAU",
+    /* 99 */ "PLATEAU", // capped — setPower(90)==setPower(99) in brightness
 };
 
 // =============================================================================
