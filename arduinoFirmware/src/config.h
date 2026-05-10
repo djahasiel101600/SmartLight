@@ -42,56 +42,48 @@ const int FADE_DELAY_MS = 20; // tick interval — 2%/20ms = 100% in 1 second
 const bool DEBUG_MODE = true;
 
 // =============================================================================
-// BRIGHTNESS LOOKUP TABLE  (60 Hz calibration — confirmed by hardware scan)
+// BRIGHTNESS MAPPING — confirmed hardware working ranges (60 Hz)
 // =============================================================================
 //
-// HARDWARE TEST RESULTS (60 Hz / 230 V / dimmable LED bulb):
+// CONFIRMED DEAD ZONES (hardware scan results — 60 Hz / 230 V / dimmable LED):
 //
 //   Zone A — 60 Hz timer OVERFLOW  (setPower 1-15):
-//     powerBuf[1-15] = 520-600, all >= 520 half-cycle ticks at 60 Hz.
-//     dimCounter never reaches the target within the current half-cycle;
-//     it carries over and fires 80-1267 us into the NEXT half-cycle.
-//     Result: near-FULL brightness regardless of which value 1-15 is set.
-//     All values appear identically bright — unusable for dimming.
-//     FIX: 0% uses setState(OFF). Values 1-22 are skipped entirely.
+//     powerBuf[1-15] >= 520 ticks; exceeds the 60 Hz half-cycle length.
+//     Fires into the NEXT half-cycle — appears near-full brightness.
+//     All 15 values look identical. Completely unusable for dimming.
+//     FIX: 0% uses setState(OFF). Low band starts at 23 instead.
 //
 //   Zone B — LED driver minimum threshold  (setPower 16-22):
-//     Fires very late in the half-cycle; conduction window < 560 us.
-//     LED driver switching converter cannot start up — bulb stays OFF.
-//     FIX: low range starts at setPower(23), the first confirmed dim level.
+//     Conduction window too small for the LED driver to sustain operation.
+//     Bulb stays completely off.
 //
-//   WORKING LOW RANGE  (setPower 23-58)  — confirmed OK:
-//     Bulb dims from lowest visible brightness up to medium.
+//   WORKING LOW BAND:  setPower(23..58)  — confirmed OK by hardware scan.
+//     Maps to logical input range 1%..50%.
 //
-//   Zone C — bulb-specific LED driver dead zone  (setPower 59-63):
-//     The switching converter inside this LED bulb cannot regulate at
-//     these specific phase angles — bulb cuts off completely.
-//     This is hardware-specific (not a 60 Hz library issue).
-//     FIX: jump from low range top (58) directly to high range start (64).
+//   Zone C — bulb-specific dead zone  (setPower 59-64):
+//     LED driver cuts out at these phase angles. Hardware-specific; not a
+//     library issue. Bulb off for all values 59, 60, 61, 62, 63, 64.
+//     FIX: high band starts at 65, jumping cleanly over the dead zone.
 //
-//   WORKING HIGH RANGE  (setPower 64-99)  — confirmed OK:
-//     Bulb brightens from lowest high-range level up to maximum.
+//   WORKING HIGH BAND:  setPower(65..99)  — confirmed OK by hardware scan.
+//     Maps to logical input range 51%..100%.
 //
-// DISTRIBUTION — 10 steps evenly spread across the two working bands:
-//   Low  band (23-58, 36 values): steps 10%-50%  -> 23, 32, 41, 50, 58
-//   High band (64-99, 36 values): steps 60%-100% -> 64, 73, 82, 91, 99
+// MAPPING STRATEGY (implemented in mapBrightness() in main.cpp):
+//   Input  1%..50%  -> linearly interpolated across DIM_LOW_START..DIM_LOW_END
+//   Input 51%..100% -> linearly interpolated across DIM_HIGH_START..DIM_HIGH_END
 //
-// HOW TO TUNE:
-//   1. Flash dimmerTester with DEBUG_MODE = true.
-//   2. Open serial monitor at 9600 baud.
-//   3. Send  RAW:<n>  to test a raw setPower(n) directly (e.g. "RAW:64").
-//   4. Adjust the failing entry here and reflash the main firmware.
+// MONOTONICITY GUARANTEE:
+//   Linear interpolation within each ascending band is always non-decreasing.
+//   At the boundary: output(50%) = DIM_LOW_END = 58,
+//                    output(51%) = DIM_HIGH_START = 65.
+//   65 > 58, so the output sequence never drops at the crossover.
+//   No output value ever falls inside a dead zone.
 //
-static const uint8_t BRIGHTNESS_LUT[11] = {
-    0,  // 0%  -> OFF via setState(OFF); value never passed to setPower()
-    20, // 10% -> low range start  (first confirmed dim level)
-    25, // 20%
-    30, // 30%
-    35, // 40%
-    40, // 50% -> low range end
-    45, // 60% -> high range start (skips dead zone 59-63)
-    50, // 70%
-    55, // 80%
-    80, // 90%
-    99, // 100%
-};
+// To calibrate for a different bulb: adjust only the four constants below
+// and reflash. The monotonicity guarantee holds for any values where
+// DIM_LOW_END < DIM_HIGH_START and both bands avoid the dead zones.
+//
+const uint8_t DIM_LOW_START = 23;  // low  band start — logical  1%
+const uint8_t DIM_LOW_END = 58;    // low  band end   — logical 50%
+const uint8_t DIM_HIGH_START = 65; // high band start — logical 51%
+const uint8_t DIM_HIGH_END = 99;   // high band end   — logical 100%

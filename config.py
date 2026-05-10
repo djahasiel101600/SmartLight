@@ -77,6 +77,7 @@ DIMMER_BRIGHTNESS: dict = {
     "Reading Book/s": 90,
     "Using Laptop":   70,
     "Using Cellphone": 60,
+    "Writing":          90,
     "Idle":           20,
 }
 
@@ -85,6 +86,7 @@ DIMMER_BEHAVIOR: dict = {
     "Reading Book/s": "reading_book",
     "Using Laptop":   "using_laptop",
     "Using Cellphone": "using_cellphone",
+    "Writing":          "writing",
     "Idle":           "idle",
 }
 

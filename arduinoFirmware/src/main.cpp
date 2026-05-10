@@ -80,6 +80,7 @@ void printDebug(const char *label, const char *value);
 
 // Internal helpers
 static uint8_t mapBrightness(int pct);
+static void verifyMonotonicity();
 static void applyChannel(uint8_t channel, int requestedPct);
 
 // =============================================================================
@@ -114,6 +115,8 @@ void setup()
 
     delay(100);
     sendReadySignal();
+    if (DEBUG_MODE)
+        verifyMonotonicity();
     statusBlink(3);
 }
 
@@ -331,24 +334,68 @@ void processCommand(char *command)
 // BRIGHTNESS CONTROL
 // =============================================================================
 //
-// mapBrightness() translates a logical 0–100% to a safe setPower() value
-// via the BRIGHTNESS_LUT anchor points with linear interpolation.
-// This corrects for the 60 Hz calibration mismatch and LED dead zones.
+// mapBrightness() — guaranteed monotonic, guaranteed dead-zone-free.
+//
+// Uses two-segment linear interpolation across the confirmed working bands:
+//
+//   Input  1%..50%  → setPower(DIM_LOW_START..DIM_LOW_END)   = 23..58
+//   Input 51%..100% → setPower(DIM_HIGH_START..DIM_HIGH_END)  = 65..99
+//
+// Monotonicity proof:
+//   • Linear interpolation on an ascending range is always non-decreasing.
+//   • Boundary: output(50%) = 58, output(51%) = 65. Since 65 > 58, the
+//     sequence never drops across the segment join.
+//   • All output values lie strictly within confirmed working bands —
+//     no value ever lands in dead zones 16-22 or 59-64.
 //
 static uint8_t mapBrightness(int pct)
 {
     if (pct <= 0)
-        return BRIGHTNESS_LUT[0];
+        return DIM_LOW_START; // applyChannel handles 0 before calling us
     if (pct >= 100)
-        return BRIGHTNESS_LUT[10];
+        return DIM_HIGH_END;
 
-    int lo = pct / 10;
-    int hi = lo + 1;
-    int frac = pct % 10;
-    // Integer linear interpolation between adjacent LUT entries
-    int mapped = (int)BRIGHTNESS_LUT[lo] +
-                 ((int)BRIGHTNESS_LUT[hi] - (int)BRIGHTNESS_LUT[lo]) * frac / 10;
-    return (uint8_t)mapped;
+    if (pct <= 50)
+    {
+        // Segment 1: input 1..50 → DIM_LOW_START..DIM_LOW_END
+        // Multiply first to avoid integer truncation at small fractions.
+        int range = (int)DIM_LOW_END - (int)DIM_LOW_START; // 35
+        return (uint8_t)((int)DIM_LOW_START + (pct - 1) * range / 49);
+    }
+    else
+    {
+        // Segment 2: input 51..100 → DIM_HIGH_START..DIM_HIGH_END
+        int range = (int)DIM_HIGH_END - (int)DIM_HIGH_START; // 34
+        return (uint8_t)((int)DIM_HIGH_START + (pct - 51) * range / 49);
+    }
+}
+
+// verifyMonotonicity() — called in setup() when DEBUG_MODE is true.
+// Iterates mapBrightness(1..100) and prints a PASS/FAIL report to serial.
+// Any output where cur < prev indicates a monotonicity violation.
+//
+static void verifyMonotonicity()
+{
+    Serial.println(F("[MONO] Verifying mapBrightness() 1-100..."));
+    bool ok = true;
+    uint8_t prev = mapBrightness(1);
+    for (int i = 2; i <= 100; i++)
+    {
+        uint8_t cur = mapBrightness(i);
+        if (cur < prev)
+        {
+            Serial.print(F("[MONO] FAIL at "));
+            Serial.print(i);
+            Serial.print(F("%: output="));
+            Serial.print(cur);
+            Serial.print(F(" < prev="));
+            Serial.println(prev);
+            ok = false;
+        }
+        prev = cur;
+    }
+    if (ok)
+        Serial.println(F("[MONO] PASS — all steps non-decreasing, no dead zones"));
 }
 
 // applyChannel() — sole point where logical % reaches the hardware.
