@@ -3,7 +3,7 @@
   (Smoothness-improved revision — protocol & configuration unchanged)
 
   Improvements over previous revision:
-    - Perceptual gamma mapping so 0–100% feels linear to the eye
+    - Linear power remap with minimum-floor so all 1-100 values are visible
     - Time-based, sub-percent accurate fade engine (no visible stepping)
     - Race-free TRIAC enable/disable at the 0% boundary
     - Identical serial protocol, pins, and constants
@@ -31,35 +31,46 @@ const bool ENABLE_FADING = true;
 const int FADE_STEP_SIZE = 2; // % per tick (kept as-is for protocol stability)
 const int FADE_DELAY_MS = 20; // ms per tick
 
+// Minimum physical power level for any non-zero request (0–100 %).
+// TRIAC-controlled LED/CFL bulbs shut off below a certain firing threshold.
+// This floor guarantees the bulb stays lit at any requested brightness > 0.
+// Raise this value if your bulb still flickers or turns off at low settings.
+const int MIN_POWER_PCT = 10;
+
 unsigned long blinkUntil = 0;
 const bool DEBUG_MODE = false;
 
 // =============================================================================
-// PERCEPTUAL CURVE (internal — does not change protocol)
+// POWER MAPPING (internal — does not change protocol)
 // =============================================================================
 //
-// The Pi sends 0–100 in linear % space.
-// We translate that to a power level the TRIAC can deliver so equal %
-// increments produce equal *visible* brightness change.
+// The Pi sends 0–100 in linear % space. We remap [1, 100] → [MIN_POWER_PCT, 100]
+// using integer arithmetic so that:
+//   • Any non-zero request is always at or above the bulb's minimum firing
+//     threshold — prevents the "turns off at 50%" symptom caused by the
+//     previous gamma-2.2 curve mapping mid-range values too low.
+//   • The full 1–100 control range maps smoothly with no compressed dead-zone.
 //
-// Gamma 2.2 closely matches human perception of incandescent dimming.
-// Output is still 0–100 (the dimmer library's expected range).
+// Why gamma 2.2 was WRONG for this use case:
+//   pow(0.10, 2.2) ≈ 0.006  → physical  1 %   ← test:1 … test:15 all identical
+//   pow(0.50, 2.2) ≈ 0.218  → physical 22 %   ← below LED minimum → bulb OFF
+//   pow(0.80, 2.2) ≈ 0.614  → physical 61 %   ← can also trip driver cutoff
 //
-static inline uint8_t perceptualMap(uint8_t requestedPct)
+static inline uint8_t mapToPhysical(uint8_t requestedPct)
 {
     if (requestedPct == 0)
         return 0;
     if (requestedPct >= 100)
         return 100;
-    // pow() on AVR is fine for 100 calls/sec; not in any ISR.
-    float n = (float)requestedPct / 100.0f;
-    float corrected = pow(n, 2.2f); // perceptual → physical
-    int out = (int)(corrected * 100.0f + 0.5f);
-    if (out < 1)
-        out = 1; // never drop a non-zero request to 0
-    if (out > 100)
-        out = 100;
-    return (uint8_t)out;
+    // Remap [1, 100] → [MIN_POWER_PCT, 100] linearly.
+    // Integer-only: no floats, no pow(), safe on AVR at any call rate.
+    // (+50 gives proper rounding instead of truncation.)
+    int mapped = MIN_POWER_PCT + ((100 - MIN_POWER_PCT) * (int)requestedPct + 50) / 100;
+    if (mapped < MIN_POWER_PCT)
+        mapped = MIN_POWER_PCT;
+    if (mapped > 100)
+        mapped = 100;
+    return (uint8_t)mapped;
 }
 
 // =============================================================================
@@ -370,7 +381,7 @@ static void applyChannel(uint8_t channel, int requestedPct)
     if (requestedPct > 100)
         requestedPct = 100;
 
-    uint8_t physical = perceptualMap((uint8_t)requestedPct);
+    uint8_t physical = mapToPhysical((uint8_t)requestedPct);
 
     if (channel == 1)
     {
