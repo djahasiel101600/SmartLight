@@ -20,7 +20,7 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # Motion Detection
 # ---------------------------------------------------------------------------
 MOTION_THRESHOLD: float = 25.0   # Pixel intensity diff threshold (0-255)
-MOTION_MIN_AREA: int = 1000      # Minimum contour area to count as motion
+MOTION_MIN_AREA: int = 600      # Minimum contour area to count as motion
 
 # ---------------------------------------------------------------------------
 # ROI Extraction
