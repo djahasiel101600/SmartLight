@@ -352,8 +352,9 @@ def run(headless: bool = config.HEADLESS) -> None:
                 cached.activity, cached.confidence
             )
 
-            # 6. Dimmer — only fires when stable activity label changes
-            dimmer.update(stable_activity)
+            # 6. Dimmer — lux-based closed-loop control
+            _lux = _estimate_lux(frame)
+            dimmer.update(stable_activity, _lux)
             dimmer.keepalive()
 
             # 7. Logging
@@ -369,8 +370,7 @@ def run(headless: bool = config.HEADLESS) -> None:
 
             # 8. Display
             if not headless:
-                _lux = _estimate_lux(frame)
-                _dim_pct = config.DIMMER_BRIGHTNESS.get(stable_activity, 0)
+                _dim_pct = dimmer.current_brightness
                 try:
                     _draw_overlay(
                         frame,

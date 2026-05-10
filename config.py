@@ -72,15 +72,30 @@ DIMMER_PORT: str = "/dev/ttyACM0"   # Already working per your output
 DIMMER_BAUD: int = 9600
 DIMMER_COMMIT_DELAY: float = 1.5    # Seconds a new activity must persist before dimmer changes
 
-# Brightness level (0-100) sent to the Arduino per activity.
-# Adjust these to suit your lighting environment.
-DIMMER_BRIGHTNESS: dict = {
-    "Reading Book/s": 90,
-    "Using Laptop":   70,
-    "Using Cellphone": 60,
-    "Writing":          90,
-    "Idle":           20,
+# ---------------------------------------------------------------------------
+# IES-Based Lux Control (replaces fixed DIMMER_BRIGHTNESS)
+# ---------------------------------------------------------------------------
+# Target illuminance ranges per activity, sourced from Illuminating Engineering
+# Society (IES) recommendations (Table 3.1).
+# The closed-loop controller steps brightness up/down to keep the
+# camera-estimated lux within these bands.
+ACTIVITY_LUX_RANGE: dict = {
+    "Reading Book/s":  (300, 500),   # IES: sufficient brightness for concentration
+    "Writing":         (300, 500),   # IES: same as reading
+    "Using Laptop":    (300, 500),   # IES: reduces glare and eye strain
+    "Using Cellphone": (200, 300),   # IES: balanced lighting for screens
+    "Idle":            (100, 150),   # IES: dimming lighting for comfort
 }
+
+LUX_STEP_SIZE: int = 3              # Brightness % points to nudge per control tick
+LUX_CONTROL_INTERVAL: float = 0.5  # Seconds between control ticks
+
+# Calibration factor: multiply raw camera-estimated lux by this value to
+# approximate real photometric lux.  To calibrate, hold a real lux meter next
+# to the camera, read both values, then set:
+#   LUX_CALIBRATION_SCALE = <meter reading> / <_estimate_lux() output>
+# Default 1.0 means no correction (relative control only).
+LUX_CALIBRATION_SCALE: float = 1.0
 
 # Behavior label sent to the Arduino (must match your Arduino firmware).
 DIMMER_BEHAVIOR: dict = {

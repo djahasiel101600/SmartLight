@@ -16,6 +16,7 @@ import time
 
 import config
 from dimmer_controller.controller import DimmerController
+from dimmer_controller.lux_controller import LuxController
 
 
 class _SerialWorker:
@@ -82,6 +83,9 @@ class DimmerManager:
         self._idle_since: float | None = None
         self._auto_off_active: bool = False
 
+        # Closed-loop lux controller
+        self._lux_ctrl = LuxController()
+
         if not config.DIMMER_ENABLED:
             print("[Dimmer] Disabled in config.")
             return
@@ -102,12 +106,18 @@ class DimmerManager:
             )
 
     # ------------------------------------------------------------------
-    def update(self, activity: str) -> bool:
+    def update(self, activity: str, current_lux: float = 0.0) -> bool:
         """
-        Send a dimmer command only when *activity* has been stable for
-        DIMMER_COMMIT_DELAY seconds.  Rapid oscillations are ignored.
+        Evaluate dimmer output for the current stable *activity* and
+        *current_lux* (raw camera-estimated lux from ``_estimate_lux()``).
 
-        Returns True if a command was dispatched, False otherwise.
+        On the first call after an activity commit, brightness is seeded to
+        the midpoint of the IES target range for that activity.  On every
+        subsequent call the LuxController nudges brightness up or down in
+        LUX_STEP_SIZE increments every LUX_CONTROL_INTERVAL seconds until
+        the calibrated lux lands inside the target band.
+
+        Returns True if a serial command was dispatched, False otherwise.
         """
         if not self._available or self._controller is None:
             return False
@@ -149,7 +159,8 @@ class DimmerManager:
         # ------------------------------------------------------------------
         if activity == self._last_activity:
             self._pending_activity = None  # committed already; reset pending
-            return False  # No change — skip serial write
+            # Activity is stable — run one lux-controller tick
+            return self._adjust_lux(activity, current_lux)
 
         # Track how long this candidate activity has been continuously requested
         if activity != self._pending_activity:
@@ -161,21 +172,56 @@ class DimmerManager:
         if now - self._pending_since < self._commit_delay:
             return False  # Not stable long enough yet
 
-        # Activity has been stable for commit_delay — send to dimmer
+        # Activity has been stable for commit_delay — seed the lux controller
+        # to the midpoint of the IES range and send the initial command.
         behavior = config.DIMMER_BEHAVIOR.get(activity, "idle")
-        brightness = config.DIMMER_BRIGHTNESS.get(activity, 20)
+        lux_range = config.ACTIVITY_LUX_RANGE.get(activity, (100, 500))
+        self._lux_ctrl.set_initial(lux_range)
+        brightness = self._lux_ctrl.brightness
 
         try:
             self._last_activity = activity
             self._pending_activity = None
             def _send(_behavior=behavior, _brightness=brightness, _activity=activity):
                 response = self._controller.send_command(_behavior, _brightness)
-                print(f"[Dimmer] {_activity!r} → behavior={_behavior!r} brightness={_brightness} | response={response!r}")
+                print(f"[Dimmer] {_activity!r} → behavior={_behavior!r} brightness={_brightness} (IES seed) | response={response!r}")
             self._worker.enqueue(_send)
             return True
         except Exception as exc:
             print(f"[Dimmer] ERROR queuing command: {exc}")
             self._available = False  # Stop retrying after a failure
+            return False
+
+        # ------------------------------------------------------------------
+        # After a commit, check whether the lux controller wants to nudge
+        # brightness on this tick (activity already stable from here on).
+        # Falls through to the continuous adjustment block below.
+
+    # ------------------------------------------------------------------
+    def _adjust_lux(self, activity: str, current_lux: float) -> bool:
+        """
+        Called every frame when *activity* is already the committed label.
+        Runs one lux-controller tick and dispatches a serial command if
+        brightness changed.
+        """
+        if not self._available or self._controller is None:
+            return False
+
+        lux_range = config.ACTIVITY_LUX_RANGE.get(activity, (100, 500))
+        brightness, changed = self._lux_ctrl.compute(current_lux, lux_range)
+        if not changed:
+            return False
+
+        behavior = config.DIMMER_BEHAVIOR.get(activity, "idle")
+        try:
+            def _send(_b=behavior, _br=brightness, _a=activity):
+                response = self._controller.send_command(_b, _br)
+                print(f"[Dimmer] lux-adjust {_a!r} → behavior={_b!r} brightness={_br} | response={response!r}")
+            self._worker.enqueue(_send)
+            return True
+        except Exception as exc:
+            print(f"[Dimmer] ERROR queuing lux-adjust: {exc}")
+            self._available = False
             return False
 
     # ------------------------------------------------------------------
@@ -204,6 +250,12 @@ class DimmerManager:
             return self._controller.ping()
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    @property
+    def current_brightness(self) -> int:
+        """Current brightness value (0–100) as tracked by the lux controller."""
+        return self._lux_ctrl.brightness
 
     # ------------------------------------------------------------------
     def disconnect(self) -> None:
