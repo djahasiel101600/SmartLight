@@ -121,30 +121,30 @@ const char *LABELS[100] = {
     /* 38 */ "OK",
     /* 39 */ "OK",
     /* 40 */ "OK",
-    /* 41 */ "OK",
-    /* 42 */ "OK",
-    /* 43 */ "OK",
-    /* 44 */ "OK",
-    /* 45 */ "OK",
-    /* 46 */ "OK",
-    /* 47 */ "OK",
-    /* 48 */ "OK",
-    /* 49 */ "OK",
-    /* 50 */ "OK",
-    /* 51 */ "OK",
-    /* 52 */ "OK",
-    /* 53 */ "OK",
-    /* 54 */ "OK",
-    /* 55 */ "OK",
-    /* 56 */ "OK",
-    /* 57 */ "OK",
-    /* 58 */ "OK",   // LOW RANGE END
-    /* 59 */ "DEAD", // DEAD ZONE START — bulb-specific LED driver dead zone
-    /* 60 */ "DEAD",
+    /* 41 */ "VERIFY", // plateau region — brightness does NOT increase above setPower(40)
+    /* 42 */ "VERIFY",
+    /* 43 */ "VERIFY",
+    /* 44 */ "VERIFY",
+    /* 45 */ "VERIFY",
+    /* 46 */ "VERIFY",
+    /* 47 */ "VERIFY",
+    /* 48 */ "VERIFY",
+    /* 49 */ "VERIFY",
+    /* 50 */ "PLATEAU", // confirmed same brightness as setPower(40) — no increase
+    /* 51 */ "VERIFY",
+    /* 52 */ "VERIFY",
+    /* 53 */ "VERIFY",
+    /* 54 */ "VERIFY",
+    /* 55 */ "VERIFY",
+    /* 56 */ "VERIFY",
+    /* 57 */ "VERIFY",
+    /* 58 */ "VERIFY", // LOW RANGE EXTENDED LIMIT — needs fine scan
+    /* 59 */ "DEAD",
+    /* 60 */ "NON-MONO", // lit but LOWER brightness than setPower(40) — reverse effect
     /* 61 */ "DEAD",
     /* 62 */ "DEAD",
     /* 63 */ "DEAD",
-    /* 64 */ "DEAD", // DEAD ZONE END
+    /* 64 */ "DEAD", // NON-MONOTONIC ZONE END — high band starts at 65
     /* 65 */ "OK",   // HIGH RANGE START — first confirmed high-range level
     /* 66 */ "OK",
     /* 67 */ "OK",

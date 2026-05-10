@@ -42,6 +42,7 @@ _SYSTEM_PROMPT = (
     "  - Reading Book/s\n"
     "  - Using Cellphone\n"
     "  - Using Laptop\n"
+    "  - Reading\n\n"
     "  - Idle\n\n"
     "Do NOT invent new activity labels. "
     "Do NOT return anything outside of these four labels. "
