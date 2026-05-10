@@ -80,8 +80,8 @@ const int DEFAULT_STEP = 1;
 // IMPORTANT: array must stay exactly 100 entries.
 //
 const char *LABELS[100] = {
-    /* 0  */ "",           // OFF — handled by setState(OFF), not setPower()
-    /* 1  */ "OVERFLOW",  // 60Hz overflow: fires in next half-cycle = near-full bright
+    /* 0  */ "",         // OFF — handled by setState(OFF), not setPower()
+    /* 1  */ "OVERFLOW", // 60Hz overflow: fires in next half-cycle = near-full bright
     /* 2  */ "OVERFLOW",
     /* 3  */ "OVERFLOW",
     /* 4  */ "OVERFLOW",
@@ -95,15 +95,15 @@ const char *LABELS[100] = {
     /* 12 */ "OVERFLOW",
     /* 13 */ "OVERFLOW",
     /* 14 */ "OVERFLOW",
-    /* 15 */ "OVERFLOW",  // powerBuf[15]=520, last overflow value
+    /* 15 */ "OVERFLOW", // powerBuf[15]=520, last overflow value
     /* 16 */ "DEAD",
     /* 17 */ "DEAD",
     /* 18 */ "DEAD",
     /* 19 */ "DEAD",
     /* 20 */ "DEAD",
     /* 21 */ "DEAD",
-    /* 22 */ "DEAD",      // LED driver minimum threshold — not enough conduction
-    /* 23 */ "OK",        // LOW RANGE START — first confirmed dim level
+    /* 22 */ "DEAD", // LED driver minimum threshold — not enough conduction
+    /* 23 */ "OK",   // LOW RANGE START — first confirmed dim level
     /* 24 */ "OK",
     /* 25 */ "OK",
     /* 26 */ "OK",
@@ -138,14 +138,14 @@ const char *LABELS[100] = {
     /* 55 */ "OK",
     /* 56 */ "OK",
     /* 57 */ "OK",
-    /* 58 */ "OK",        // LOW RANGE END
-    /* 59 */ "DEAD",      // DEAD ZONE START — bulb-specific LED driver dead zone
+    /* 58 */ "OK",   // LOW RANGE END
+    /* 59 */ "DEAD", // DEAD ZONE START — bulb-specific LED driver dead zone
     /* 60 */ "DEAD",
     /* 61 */ "DEAD",
     /* 62 */ "DEAD",
-    /* 63 */ "DEAD",      // DEAD ZONE END
-    /* 64 */ "OK",        // HIGH RANGE START — first confirmed high-range level
-    /* 65 */ "OK",
+    /* 63 */ "DEAD",
+    /* 64 */ "DEAD", // DEAD ZONE END
+    /* 65 */ "OK",   // HIGH RANGE START — first confirmed high-range level
     /* 66 */ "OK",
     /* 67 */ "OK",
     /* 68 */ "OK",
@@ -179,7 +179,7 @@ const char *LABELS[100] = {
     /* 96 */ "OK",
     /* 97 */ "OK",
     /* 98 */ "OK",
-    /* 99 */ "OK",        // HIGH RANGE END
+    /* 99 */ "OK", // HIGH RANGE END
 };
 
 // =============================================================================

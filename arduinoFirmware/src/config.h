@@ -63,7 +63,7 @@ const bool DEBUG_MODE = true;
 //   WORKING LOW RANGE  (setPower 23-58)  — confirmed OK:
 //     Bulb dims from lowest visible brightness up to medium.
 //
-//   Zone C — bulb-specific LED driver dead zone  (setPower 59-63):
+//   Zone C — bulb-specific LED driver dead zone  (setPower 59-64):
 //     The switching converter inside this LED bulb cannot regulate at
 //     these specific phase angles — bulb cuts off completely.
 //     This is hardware-specific (not a 60 Hz library issue).
@@ -83,15 +83,15 @@ const bool DEBUG_MODE = true;
 //   4. Adjust the failing entry here and reflash the main firmware.
 //
 static const uint8_t BRIGHTNESS_LUT[11] = {
-     0,  // 0%  -> OFF via setState(OFF); value never passed to setPower()
-    23,  // 10% -> low range start  (first confirmed dim level)
-    32,  // 20%
-    41,  // 30%
-    50,  // 40%
-    58,  // 50% -> low range end
-    64,  // 60% -> high range start (skips dead zone 59-63)
-    73,  // 70%
-    82,  // 80%
-    91,  // 90%
-    99,  // 100%
+    0,  // 0%  -> OFF via setState(OFF); value never passed to setPower()
+    23, // 10% -> low range start  (first confirmed dim level)
+    32, // 20%
+    41, // 30%
+    50, // 40%
+    58, // 50% -> low range end
+    65, // 60% -> high range start (skips dead zone 59-64)
+    73, // 70%
+    82, // 80%
+    91, // 90%
+    99, // 100%
 };
