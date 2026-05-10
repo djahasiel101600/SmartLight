@@ -98,8 +98,10 @@ void setup()
     // no setState() calls needed or wanted after this point.
     dimmer1.begin(NORMAL_MODE, ON);
     dimmer2.begin(NORMAL_MODE, ON);
-    dimmer1.setPower(0);
-    dimmer2.setPower(0);
+    // setState(OFF) — not setPower(0) — because at 60 Hz, setPower(0) causes
+    // a timer overflow that fires the TRIAC at near-full brightness.
+    dimmer1.setState(OFF);
+    dimmer2.setState(OFF);
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
@@ -349,9 +351,15 @@ static uint8_t mapBrightness(int pct)
     return (uint8_t)mapped;
 }
 
-// applyChannel() mirrors the official RBDDimmer SerialMonitorDim example:
-// only setPower() is called — no setState(), no branch logic, no state flags.
-// The ZC ISR is always running; setPower(0) is a clean "off" by design.
+// applyChannel() — sole point where logical % reaches the hardware.
+//
+// 0% SPECIAL CASE: setState(OFF) stops the ZC ISR from arming the TRIAC.
+// setPower(0) alone is unreliable at 60 Hz: powerBuf[0]=600 exceeds the
+// 520-tick half-cycle, so the counter overflows into the next half-cycle
+// and the TRIAC fires near the zero crossing — producing bright light.
+//
+// Non-zero: setState(ON) re-arms the ISR (safe to call even if already ON),
+// then setPower(physical) sets the firing delay via the LUT-mapped value.
 //
 static void applyChannel(uint8_t channel, int requestedPct)
 {
@@ -359,6 +367,29 @@ static void applyChannel(uint8_t channel, int requestedPct)
         requestedPct = 0;
     if (requestedPct > 100)
         requestedPct = 100;
+
+    if (requestedPct == 0)
+    {
+        // setState(OFF) clears the zeroCross flag so the TRIAC never fires.
+        if (channel == 1)
+            dimmer1.setState(OFF);
+        else
+            dimmer2.setState(OFF);
+        if (DEBUG_MODE)
+        {
+            Serial.print("[DEBUG] ch=");
+            Serial.print(channel);
+            Serial.println(" -> OFF (setState)");
+        }
+        return;
+    }
+
+    // Re-arm the ISR when coming back from 0% (setState is idempotent — safe
+    // to call every time; no race condition for a simple flag write on AVR).
+    if (channel == 1)
+        dimmer1.setState(ON);
+    else
+        dimmer2.setState(ON);
 
     uint8_t physical = mapBrightness(requestedPct);
 
@@ -654,10 +685,10 @@ void resetDevice()
 
 void disconnectDevice()
 {
-    // Python is shutting down — setPower(0) stops TRIAC firing immediately.
-    // setState() is intentionally not called (see setup() comment).
-    dimmer1.setPower(0);
-    dimmer2.setPower(0);
+    // Use setState(OFF) — not setPower(0) — because at 60 Hz, setPower(0)
+    // overflows the half-cycle counter and fires the TRIAC at full brightness.
+    dimmer1.setState(OFF);
+    dimmer2.setState(OFF);
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;

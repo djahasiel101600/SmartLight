@@ -45,35 +45,48 @@ const bool DEBUG_MODE = true;
 // BRIGHTNESS LOOKUP TABLE  (60 Hz calibration)
 // =============================================================================
 //
-// The RBDDimmer powerBuf[] is tuned for 50 Hz (625 timer ticks per half-cycle).
-// At 60 Hz there are only ~520 ticks, so setPower(0-14) never fires the TRIAC
-// (powerBuf[0-14] = 526-600, all > 520) — those inputs produce no light.
-// setPower(16) gives powerBuf[16] = 514, safely within the 60 Hz window.
+// CONFIRMED DEAD ZONES on this hardware (60 Hz / dimmable LED bulb):
 //
-// Additionally, some LED drivers have narrow dead zones at specific phase-cut
-// angles (reported: setPower(50) and setPower(80) turn the bulb off).
+//   Zone A — 60 Hz timer overflow (setPower 0-15):
+//     powerBuf[0-15] = 526-600, all > 520 half-cycle ticks.
+//     The TRIAC never resets within the half-cycle; dimCounter overflows into
+//     the next half-cycle and fires near the zero crossing = full brightness.
+//     FIX: 0% uses setState(OFF) in applyChannel(). Values 1-15 are skipped.
 //
-// This table maps the 11 logical levels (0%, 10%, ... 100%) to safe setPower()
-// values that avoid both the 60 Hz cutoff and the known LED dead zones.
-// Values in between are linearly interpolated by mapBrightness() in main.cpp.
+//   Zone B — near-cutoff dim (setPower 16-34):
+//     Fires at 96-77% into the half-cycle. Leaves 96-1440 us of conduction.
+//     setPower(16) = dead (96 us, LED driver can't sustain).
+//     setPower(17-34) = extremely dim or unreliable flicker.
+//     FIX: logical 10% and 20% are remapped to setPower(35) and setPower(40),
+//     the first confirmed reliable dim levels.
+//
+//   Zone C — LED driver dead zone (setPower 55-71):
+//     powerBuf values 274-186, firing at ~36-54% into half-cycle.
+//     The switching converter inside this LED bulb cannot regulate at these
+//     phase angles — bulb cuts off completely. This is hardware-specific.
+//     FIX: logical 60% jumps directly to setPower(72), the first confirmed
+//     reliable high-range value.
+//
+// CONFIRMED WORKING RANGES:
+//   Low range:  setPower 35-54  (logical 10%-50%)
+//   High range: setPower 72-99  (logical 60%-100%)
 //
 // HOW TO TUNE:
-//   1. Flash firmware with DEBUG_MODE = true.
+//   1. Flash with DEBUG_MODE = true.
 //   2. Open serial monitor at 9600 baud.
-//   3. Send  RAW:<n>  (e.g. "RAW:54") to test a raw setPower(n) value directly
-//      without reflashing. Observe whether the bulb responds correctly.
-//   4. Adjust the entry for the failing level and reflash.
+//   3. Send  RAW:<n>  to test a raw setPower(n) directly (e.g. "RAW:72").
+//   4. Adjust the failing entry and reflash.
 //
 static const uint8_t BRIGHTNESS_LUT[11] = {
-    0,  // 0%  -> explicit off (always 0)
-    16, // 10% -> first reliable level at 60 Hz (powerBuf[16] = 514 < 520)
-    26, // 20%
-    35, // 30%
-    44, // 40%
-    54, // 50% -> shifted +4 to skip setPower(50) dead zone
-    63, // 60%
-    72, // 70%
-    84, // 80% -> shifted +4 to skip setPower(80) dead zone
-    91, // 90%
-    99, // 100% (library internally clamps >=99 -> 99)
-};
+    0,  // 0%  -> OFF via setState(OFF); this value is never passed to setPower
+    35, // 10% -> first confirmed reliable dim  (powerBuf=400, 77% into cycle)
+    40, // 20% -> slight step up                (powerBuf=370, 71% into cycle)
+    44, // 30% -> confirmed working             (powerBuf=340, 65% into cycle)
+    49, // 40% ->                               (powerBuf=310, 60% into cycle)
+    54, // 50% -> confirmed working             (powerBuf=280, 54% into cycle)
+    72, // 60% -> SKIPS dead zone (55-71); jumps to high range (powerBuf=168)
+    79, // 70% -> confirmed working             (powerBuf=126, 24% into cycle)
+    84, // 80% -> confirmed working             (powerBuf= 96, 18% into cycle)
+    91, // 90% -> confirmed working             (powerBuf= 54, 10% into cycle)
+    99, // 100%-> confirmed working             (powerBuf=  8,  2% into cycle)
+}
