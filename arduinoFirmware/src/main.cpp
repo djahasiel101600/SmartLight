@@ -108,11 +108,6 @@ bool timeoutEnabled = true;
 bool processingCommand = false;
 bool piConnected = false;
 
-// Track TRIAC ISR state per channel so we only toggle it when truly needed
-// (avoids the race that produced flicker at the 0% boundary).
-bool triacOn_CH1 = false;
-bool triacOn_CH2 = false;
-
 // =============================================================================
 // FORWARD DECLARATIONS
 // =============================================================================
@@ -152,12 +147,13 @@ void setup()
 
     pinMode(STATUS_LED, OUTPUT);
 
-    dimmer1.begin(NORMAL_MODE, OFF);
-    dimmer2.begin(NORMAL_MODE, OFF);
+    // Initialize with ON state, power 0 — matches the official RBDDimmer
+    // example. The ZC ISR runs continuously; setPower(0) suppresses TRIAC
+    // firing entirely. setState(OFF) is NOT needed and causes race conditions.
+    dimmer1.begin(NORMAL_MODE, ON);
+    dimmer2.begin(NORMAL_MODE, ON);
     dimmer1.setPower(0);
     dimmer2.setPower(0);
-    triacOn_CH1 = false;
-    triacOn_CH2 = false;
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
@@ -369,10 +365,11 @@ void processCommand(char *command)
 // BRIGHTNESS CONTROL
 // =============================================================================
 //
-// applyChannel() is the single point where a requested 0–100 value becomes
-// a TRIAC firing level. It handles:
-//   - perceptual gamma mapping
-//   - race-free TRIAC ON/OFF transitions at the 0 boundary
+// applyChannel() is the single point where a requested 0–100 value becomes a
+// TRIAC firing level. Modelled on the official RBDDimmer SerialMonitorDim
+// example: only setPower() is used. setState() is never called after begin()
+// because toggling the ZC ISR mid-operation creates a race where the TRIAC
+// fires at an undefined phase angle, producing the blink/flash artefact.
 //
 static void applyChannel(uint8_t channel, int requestedPct)
 {
@@ -384,46 +381,9 @@ static void applyChannel(uint8_t channel, int requestedPct)
     uint8_t physical = mapToPhysical((uint8_t)requestedPct);
 
     if (channel == 1)
-    {
-        if (requestedPct > 0 && !triacOn_CH1)
-        {
-            // Set power BEFORE enabling TRIAC so the very first half-cycle
-            // already has the correct phase angle — eliminates the brief
-            // dim flash some setups show on re-enable.
-            dimmer1.setPower(physical);
-            dimmer1.setState(ON);
-            triacOn_CH1 = true;
-        }
-        else if (requestedPct == 0 && triacOn_CH1)
-        {
-            dimmer1.setPower(0);
-            dimmer1.setState(OFF);
-            triacOn_CH1 = false;
-        }
-        else
-        {
-            dimmer1.setPower(physical);
-        }
-    }
+        dimmer1.setPower(physical);
     else
-    {
-        if (requestedPct > 0 && !triacOn_CH2)
-        {
-            dimmer2.setPower(physical);
-            dimmer2.setState(ON);
-            triacOn_CH2 = true;
-        }
-        else if (requestedPct == 0 && triacOn_CH2)
-        {
-            dimmer2.setPower(0);
-            dimmer2.setState(OFF);
-            triacOn_CH2 = false;
-        }
-        else
-        {
-            dimmer2.setPower(physical);
-        }
-    }
+        dimmer2.setPower(physical);
 }
 
 void setBothChannels(int pct)
@@ -702,14 +662,10 @@ void resetDevice()
 
 void disconnectDevice()
 {
-    // Python is shutting down — kill TRIAC firing immediately and reset all
-    // fade state so the safety timeout can't re-trigger output.
-    dimmer1.setState(OFF);
-    dimmer2.setState(OFF);
+    // Python is shutting down — kill TRIAC output immediately by setting
+    // power to 0, then reset all fade state.
     dimmer1.setPower(0);
     dimmer2.setPower(0);
-    triacOn_CH1 = false;
-    triacOn_CH2 = false;
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
