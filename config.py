@@ -59,6 +59,7 @@ ALLOWED_ACTIVITIES: list = [
     "Reading Book/s",
     "Using Cellphone",
     "Using Laptop",
+    "Writing",
     "Idle",
 ]
 DEFAULT_ACTIVITY: str = "Idle"
