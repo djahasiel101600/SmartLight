@@ -89,9 +89,9 @@ static const uint8_t BRIGHTNESS_LUT[11] = {
     41, // 30%
     50, // 40%
     58, // 50% -> low range end
-    65, // 60% -> high range start (skips dead zone 59-64)
-    73, // 70%
-    82, // 80%
+    75, // 60% -> high range start (skips dead zone 59-64)
+    80, // 70%
+    85, // 80%
     91, // 90%
     99, // 100%
 };
