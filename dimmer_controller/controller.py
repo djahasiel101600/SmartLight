@@ -3,7 +3,7 @@ import time
 
 class DimmerController:
     def __init__(self, port='/dev/ttyACM0', baud=9600):
-        self.ser = serial.Serial(port, baud, timeout=1)
+        self.ser = serial.Serial(port, baud, timeout=0.15)
         time.sleep(2)  # Wait for Arduino reset
         self.check_ready()
     

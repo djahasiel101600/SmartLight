@@ -20,7 +20,7 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # Motion Detection
 # ---------------------------------------------------------------------------
 MOTION_THRESHOLD: float = 25.0   # Pixel intensity diff threshold (0-255)
-MOTION_MIN_AREA: int = 1500      # Minimum contour area to count as motion
+MOTION_MIN_AREA: int = 1000      # Minimum contour area to count as motion
 
 # ---------------------------------------------------------------------------
 # ROI Extraction
@@ -98,7 +98,7 @@ DIMMER_BEHAVIOR: dict = {
 # the light is turned off completely (brightness → 0 via the Arduino fader).
 # The light comes back on automatically as soon as a non-idle activity is detected.
 IDLE_AUTO_OFF_ENABLED: bool = True
-IDLE_AUTO_OFF_SECONDS: float = 120.0   # 2 minutes — adjust as needed
+IDLE_AUTO_OFF_SECONDS: float = 90.0   # 2 minutes — adjust as needed
 
 # ---------------------------------------------------------------------------
 # Logging

@@ -6,12 +6,54 @@ Responsibilities:
 - Activity-change detection: sends a serial command only when the stable
   activity label changes, avoiding redundant serial writes.
 - Maps activity labels → behavior strings and brightness values from config.
+- All serial I/O is executed in a background daemon thread so the camera /
+  display loop is never blocked by serial readline() latency.
 """
 
+import queue
+import threading
 import time
 
 import config
 from dimmer_controller.controller import DimmerController
+
+
+class _SerialWorker:
+    """
+    Background thread that drains a command queue and executes serial I/O.
+    The main loop enqueues work and returns immediately; this thread does
+    the actual blocking serial.write() / serial.readline() calls.
+    """
+
+    # Sentinel pushed to the queue to ask the thread to exit cleanly.
+    _STOP = object()
+
+    def __init__(self, controller: DimmerController) -> None:
+        self._controller = controller
+        self._queue: queue.Queue = queue.Queue()
+        self._thread = threading.Thread(
+            target=self._run, name="dimmer-serial", daemon=True
+        )
+        self._thread.start()
+
+    def enqueue(self, fn) -> None:
+        """Enqueue a zero-argument callable.  Returns immediately."""
+        self._queue.put_nowait(fn)
+
+    def stop(self) -> None:
+        """Ask the worker thread to exit and wait up to 0.5 s."""
+        self._queue.put_nowait(self._STOP)
+        self._thread.join(timeout=0.5)
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is self._STOP:
+                break
+            try:
+                item()
+            except Exception as exc:
+                print(f"[DimmerWorker] serial error: {exc}")
 
 
 class DimmerManager:
@@ -24,6 +66,7 @@ class DimmerManager:
 
     def __init__(self) -> None:
         self._controller: DimmerController | None = None
+        self._worker: _SerialWorker | None = None
         self._last_activity: str | None = None
         self._available: bool = False
         self._last_keepalive: float = 0.0
@@ -48,6 +91,7 @@ class DimmerManager:
                 port=config.DIMMER_PORT,
                 baud=config.DIMMER_BAUD,
             )
+            self._worker = _SerialWorker(self._controller)
             self._available = True
             print(f"[Dimmer] Connected on {config.DIMMER_PORT}")
         except Exception as exc:
@@ -83,14 +127,16 @@ class DimmerManager:
             if auto_off_enabled and not self._auto_off_active:
                 if now - self._idle_since >= auto_off_seconds:
                     try:
-                        response = self._controller.send_command("off", 0)
                         self._auto_off_active = True
                         self._last_activity = "Idle"
                         self._pending_activity = None
-                        print(f"[Dimmer] Idle auto-off triggered after {auto_off_seconds}s | response={response!r}")
+                        def _send_auto_off():
+                            response = self._controller.send_command("off", 0)
+                            print(f"[Dimmer] Idle auto-off triggered after {auto_off_seconds}s | response={response!r}")
+                        self._worker.enqueue(_send_auto_off)
                         return True
                     except Exception as exc:
-                        print(f"[Dimmer] ERROR sending auto-off command: {exc}")
+                        print(f"[Dimmer] ERROR queuing auto-off command: {exc}")
                         self._available = False
                         return False
         else:
@@ -120,13 +166,15 @@ class DimmerManager:
         brightness = config.DIMMER_BRIGHTNESS.get(activity, 20)
 
         try:
-            response = self._controller.send_command(behavior, brightness)
             self._last_activity = activity
             self._pending_activity = None
-            print(f"[Dimmer] {activity!r} → behavior={behavior!r} brightness={brightness} | response={response!r}")
+            def _send(_behavior=behavior, _brightness=brightness, _activity=activity):
+                response = self._controller.send_command(_behavior, _brightness)
+                print(f"[Dimmer] {_activity!r} → behavior={_behavior!r} brightness={_brightness} | response={response!r}")
+            self._worker.enqueue(_send)
             return True
         except Exception as exc:
-            print(f"[Dimmer] ERROR sending command: {exc}")
+            print(f"[Dimmer] ERROR queuing command: {exc}")
             self._available = False  # Stop retrying after a failure
             return False
 
@@ -141,9 +189,9 @@ class DimmerManager:
             return
         if time.monotonic() - self._last_keepalive < self._keepalive_interval:
             return
+        self._last_keepalive = time.monotonic()
         try:
-            self._controller.ping()
-            self._last_keepalive = time.monotonic()
+            self._worker.enqueue(self._controller.ping)
         except Exception:
             pass
 
@@ -166,11 +214,15 @@ class DimmerManager:
         if not self._available or self._controller is None:
             return
         try:
+            # Stop the background worker first so no queued commands race
+            # with the disconnect write.
+            if self._worker is not None:
+                self._worker.stop()
+                self._worker = None
             self._controller.ser.write(b"DISCONNECT\n")
             # Small pause so the Arduino can process the command before the
             # serial port is closed (which triggers an Arduino reset anyway).
-            import time as _time
-            _time.sleep(0.2)
+            time.sleep(0.2)
             print("[Dimmer] Disconnect signal sent — lights fading off.")
         except Exception:
             pass
