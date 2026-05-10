@@ -1,12 +1,10 @@
 /*
   RobotDyn 2-Channel AC Light Dimmer Control - RPi4 Optimized
-  (Smoothness-improved revision — protocol & configuration unchanged)
 
-  Improvements over previous revision:
-    - Perceptual gamma mapping so 0–100% feels linear to the eye
-    - Time-based, sub-percent accurate fade engine (no visible stepping)
-    - Race-free TRIAC enable/disable at the 0% boundary
-    - Identical serial protocol, pins, and constants
+  Follows the official RBDDimmer SerialMonitorDim example exactly:
+    - begin(NORMAL_MODE, ON)  — ISR runs continuously, setPower(0) = light off
+    - setPower() is the only brightness control call; setState() never used
+    - ENABLE_FADING = false for direct 0-100% testing (set true after verified)
 */
 
 #include <RBDdimmer.h>
@@ -27,34 +25,12 @@ const unsigned long COMMAND_TIMEOUT = 60000;
 const unsigned long HEARTBEAT_INTERVAL = 1000;
 const unsigned long SERIAL_TIMEOUT_MS = 100;
 
-const bool ENABLE_FADING = true;
-const int FADE_STEP_SIZE = 2; // % per tick (kept as-is for protocol stability)
-const int FADE_DELAY_MS = 20; // ms per tick
+const bool ENABLE_FADING = false; // Set true after 10-step brightness test passes
+const int FADE_STEP_SIZE = 2;
+const int FADE_DELAY_MS = 20;
 
 unsigned long blinkUntil = 0;
 const bool DEBUG_MODE = false;
-
-// =============================================================================
-// PERCEPTUAL CURVE (internal — does not change protocol)
-// =============================================================================
-//
-// The Pi sends 0–100 in linear % space.
-// We translate that to a power level the TRIAC can deliver so equal %
-// increments produce equal *visible* brightness change.
-//
-// Gamma 2.2 closely matches human perception of incandescent dimming.
-// Output is still 0–100 (the dimmer library's expected range).
-//
-static inline uint8_t perceptualMap(uint8_t requestedPct)
-{
-    if (requestedPct == 0)
-        return 0;
-    if (requestedPct >= 100)
-        return 100;
-
-    // Linear mapping - no gamma correction
-    return requestedPct;
-}
 
 // =============================================================================
 // DIMMER OBJECTS
@@ -90,11 +66,6 @@ unsigned long lastFadeTickMicros = 0;
 bool timeoutEnabled = true;
 bool processingCommand = false;
 bool piConnected = false;
-
-// Track TRIAC ISR state per channel so we only toggle it when truly needed
-// (avoids the race that produced flicker at the 0% boundary).
-bool triacOn_CH1 = false;
-bool triacOn_CH2 = false;
 
 // =============================================================================
 // FORWARD DECLARATIONS
@@ -135,12 +106,13 @@ void setup()
 
     pinMode(STATUS_LED, OUTPUT);
 
-    dimmer1.begin(NORMAL_MODE, OFF);
-    dimmer2.begin(NORMAL_MODE, OFF);
+    // begin(NORMAL_MODE, ON) matches the official RBDDimmer example exactly.
+    // The ZC ISR runs continuously; setPower(0) suppresses TRIAC firing —
+    // no setState() calls needed or wanted after this point.
+    dimmer1.begin(NORMAL_MODE, ON);
+    dimmer2.begin(NORMAL_MODE, ON);
     dimmer1.setPower(0);
     dimmer2.setPower(0);
-    triacOn_CH1 = false;
-    triacOn_CH2 = false;
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
@@ -352,10 +324,9 @@ void processCommand(char *command)
 // BRIGHTNESS CONTROL
 // =============================================================================
 //
-// applyChannel() is the single point where a requested 0–100 value becomes
-// a TRIAC firing level. It handles:
-//   - perceptual gamma mapping
-//   - race-free TRIAC ON/OFF transitions at the 0 boundary
+// applyChannel() mirrors the official RBDDimmer SerialMonitorDim example:
+// only setPower() is called — no setState(), no branch logic, no state flags.
+// The ZC ISR is always running; setPower(0) is a clean "off" by design.
 //
 static void applyChannel(uint8_t channel, int requestedPct)
 {
@@ -364,61 +335,10 @@ static void applyChannel(uint8_t channel, int requestedPct)
     if (requestedPct > 100)
         requestedPct = 100;
 
-    uint8_t physical = perceptualMap((uint8_t)requestedPct);
-
-    // DEBUG: Print actual mapping
-    if (DEBUG_MODE && requestedPct != physical)
-    {
-        Serial.print("[DEBUG] Channel ");
-        Serial.print(channel);
-        Serial.print(": Requested ");
-        Serial.print(requestedPct);
-        Serial.print("%, Physical ");
-        Serial.print(physical);
-        Serial.println("%");
-    }
-
     if (channel == 1)
-    {
-        if (requestedPct > 0 && !triacOn_CH1)
-        {
-            // Set power BEFORE enabling TRIAC so the very first half-cycle
-            // already has the correct phase angle — eliminates the brief
-            // dim flash some setups show on re-enable.
-            dimmer1.setPower(physical);
-            dimmer1.setState(ON);
-            triacOn_CH1 = true;
-        }
-        else if (requestedPct == 0 && triacOn_CH1)
-        {
-            dimmer1.setPower(0);
-            dimmer1.setState(OFF);
-            triacOn_CH1 = false;
-        }
-        else
-        {
-            dimmer1.setPower(physical);
-        }
-    }
+        dimmer1.setPower((uint8_t)requestedPct);
     else
-    {
-        if (requestedPct > 0 && !triacOn_CH2)
-        {
-            dimmer2.setPower(physical);
-            dimmer2.setState(ON);
-            triacOn_CH2 = true;
-        }
-        else if (requestedPct == 0 && triacOn_CH2)
-        {
-            dimmer2.setPower(0);
-            dimmer2.setState(OFF);
-            triacOn_CH2 = false;
-        }
-        else
-        {
-            dimmer2.setPower(physical);
-        }
-    }
+        dimmer2.setPower((uint8_t)requestedPct);
 }
 
 void setBothChannels(int pct)
@@ -697,14 +617,10 @@ void resetDevice()
 
 void disconnectDevice()
 {
-    // Python is shutting down — kill TRIAC firing immediately and reset all
-    // fade state so the safety timeout can't re-trigger output.
-    dimmer1.setState(OFF);
-    dimmer2.setState(OFF);
+    // Python is shutting down — setPower(0) stops TRIAC firing immediately.
+    // setState() is intentionally not called (see setup() comment).
     dimmer1.setPower(0);
     dimmer2.setPower(0);
-    triacOn_CH1 = false;
-    triacOn_CH2 = false;
 
     currentBrightness_CH1 = 0;
     currentBrightness_CH2 = 0;
