@@ -33,6 +33,40 @@ unsigned long blinkUntil = 0;
 const bool DEBUG_MODE = false;
 
 // =============================================================================
+// BRIGHTNESS LOOKUP TABLE  (60 Hz calibration)
+// =============================================================================
+//
+// The RBDDimmer powerBuf[] is tuned for 50 Hz (625 timer ticks per half-cycle).
+// At 60 Hz there are only ~520 ticks, so setPower(0-14) never fires the TRIAC
+// (powerBuf[0-14] = 526-600, all > 520) — those inputs produce no light.
+// setPower(16) gives powerBuf[16] = 514, safely within the 60 Hz window.
+//
+// Additionally, some LED drivers have narrow dead zones at specific phase-cut
+// angles (reported: setPower(50) and setPower(80) turn the bulb off).
+//
+// This table maps the 11 logical levels (0%, 10%, … 100%) to safe setPower()
+// values that avoid both the 60 Hz cutoff and the known LED dead zones.
+// Values in between are linearly interpolated by mapBrightness().
+//
+// TUNING: adjust any entry if a level appears off/wrong on your bulb.
+// Use the serial command  RAW:<n>  to test individual setPower(n) values live
+// without reflashing firmware (e.g. send "RAW:54" → setPower(54) directly).
+//
+static const uint8_t BRIGHTNESS_LUT[11] = {
+    0,  // 0%  → explicit off  (always 0)
+    16, // 10% → first reliable level at 60 Hz (powerBuf[16] = 514 < 520)
+    26, // 20%
+    35, // 30%
+    44, // 40%
+    54, // 50% → shifted +4 to skip setPower(50) dead zone
+    63, // 60%
+    72, // 70%
+    84, // 80% → shifted +4 to skip setPower(80) dead zone
+    91, // 90%
+    99, // 100% (library internally clamps ≥99 → 99)
+};
+
+// =============================================================================
 // DIMMER OBJECTS
 // =============================================================================
 
@@ -93,6 +127,7 @@ void printDebug(const char *label, int value);
 void printDebug(const char *label, const char *value);
 
 // Internal helpers
+static uint8_t mapBrightness(int pct);
 static void applyChannel(uint8_t channel, int requestedPct);
 
 // =============================================================================
@@ -275,6 +310,24 @@ void processCommand(char *command)
         return;
     }
 
+    // RAW:<n> — bypass BRIGHTNESS_LUT and call setPower(n) directly.
+    // Use this to identify safe setPower() values for your specific bulb,
+    // then update the BRIGHTNESS_LUT constants above accordingly.
+    if (strncmp(command, "RAW:", 4) == 0)
+    {
+        int rawVal = atoi(command + 4);
+        if (rawVal < 0)
+            rawVal = 0;
+        if (rawVal > 99)
+            rawVal = 99;
+        dimmer1.setPower((uint8_t)rawVal);
+        dimmer2.setPower((uint8_t)rawVal);
+        Serial.print("RAW_SET:");
+        Serial.println(rawVal);
+        processingCommand = false;
+        return;
+    }
+
     char *colonPos = strchr(command, ':');
     if (colonPos == NULL)
     {
@@ -324,6 +377,26 @@ void processCommand(char *command)
 // BRIGHTNESS CONTROL
 // =============================================================================
 //
+// mapBrightness() translates a logical 0–100% to a safe setPower() value
+// via the BRIGHTNESS_LUT anchor points with linear interpolation.
+// This corrects for the 60 Hz calibration mismatch and LED dead zones.
+//
+static uint8_t mapBrightness(int pct)
+{
+    if (pct <= 0)
+        return BRIGHTNESS_LUT[0];
+    if (pct >= 100)
+        return BRIGHTNESS_LUT[10];
+
+    int lo = pct / 10;
+    int hi = lo + 1;
+    int frac = pct % 10;
+    // Integer linear interpolation between adjacent LUT entries
+    int mapped = (int)BRIGHTNESS_LUT[lo] +
+                 ((int)BRIGHTNESS_LUT[hi] - (int)BRIGHTNESS_LUT[lo]) * frac / 10;
+    return (uint8_t)mapped;
+}
+
 // applyChannel() mirrors the official RBDDimmer SerialMonitorDim example:
 // only setPower() is called — no setState(), no branch logic, no state flags.
 // The ZC ISR is always running; setPower(0) is a clean "off" by design.
@@ -335,10 +408,22 @@ static void applyChannel(uint8_t channel, int requestedPct)
     if (requestedPct > 100)
         requestedPct = 100;
 
+    uint8_t physical = mapBrightness(requestedPct);
+
+    if (DEBUG_MODE)
+    {
+        Serial.print("[DEBUG] ch=");
+        Serial.print(channel);
+        Serial.print(" logical=");
+        Serial.print(requestedPct);
+        Serial.print(" physical=");
+        Serial.println(physical);
+    }
+
     if (channel == 1)
-        dimmer1.setPower((uint8_t)requestedPct);
+        dimmer1.setPower(physical);
     else
-        dimmer2.setPower((uint8_t)requestedPct);
+        dimmer2.setPower(physical);
 }
 
 void setBothChannels(int pct)
