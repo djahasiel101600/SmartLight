@@ -89,6 +89,15 @@ DIMMER_BEHAVIOR: dict = {
 }
 
 # ---------------------------------------------------------------------------
+# Idle Auto-Off
+# ---------------------------------------------------------------------------
+# When the stable activity has been "Idle" for this many continuous seconds,
+# the light is turned off completely (brightness → 0 via the Arduino fader).
+# The light comes back on automatically as soon as a non-idle activity is detected.
+IDLE_AUTO_OFF_ENABLED: bool = True
+IDLE_AUTO_OFF_SECONDS: float = 120.0   # 2 minutes — adjust as needed
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 LOG_TO_FILE: bool = True

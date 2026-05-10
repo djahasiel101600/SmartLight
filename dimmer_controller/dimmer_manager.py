@@ -35,6 +35,10 @@ class DimmerManager:
         self._pending_activity: str | None = None
         self._pending_since: float = 0.0
 
+        # Idle auto-off tracking
+        self._idle_since: float | None = None
+        self._auto_off_active: bool = False
+
         if not config.DIMMER_ENABLED:
             print("[Dimmer] Disabled in config.")
             return
@@ -64,12 +68,44 @@ class DimmerManager:
         if not self._available or self._controller is None:
             return False
 
+        now = time.monotonic()
+
+        # ------------------------------------------------------------------
+        # Idle auto-off: if the activity has been "Idle" continuously for
+        # IDLE_AUTO_OFF_SECONDS, fade the light fully off.
+        # ------------------------------------------------------------------
+        auto_off_enabled = getattr(config, "IDLE_AUTO_OFF_ENABLED", False)
+        auto_off_seconds = getattr(config, "IDLE_AUTO_OFF_SECONDS", 120.0)
+
+        if activity == "Idle":
+            if self._idle_since is None:
+                self._idle_since = now           # start idle timer
+            if auto_off_enabled and not self._auto_off_active:
+                if now - self._idle_since >= auto_off_seconds:
+                    try:
+                        response = self._controller.send_command("off", 0)
+                        self._auto_off_active = True
+                        self._last_activity = "Idle"
+                        self._pending_activity = None
+                        print(f"[Dimmer] Idle auto-off triggered after {auto_off_seconds}s | response={response!r}")
+                        return True
+                    except Exception as exc:
+                        print(f"[Dimmer] ERROR sending auto-off command: {exc}")
+                        self._available = False
+                        return False
+        else:
+            # Non-idle activity: reset idle tracking so light comes back on
+            self._idle_since = None
+            self._auto_off_active = False
+
+        # ------------------------------------------------------------------
+        # Standard change-detection with commit delay
+        # ------------------------------------------------------------------
         if activity == self._last_activity:
             self._pending_activity = None  # committed already; reset pending
             return False  # No change — skip serial write
 
         # Track how long this candidate activity has been continuously requested
-        now = time.monotonic()
         if activity != self._pending_activity:
             # New candidate — start the hold timer
             self._pending_activity = activity

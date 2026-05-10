@@ -53,6 +53,9 @@ const bool ENABLE_FADING = true;
 const int FADE_STEP_SIZE = 2; // % per tick — increase to fade faster
 const int FADE_DELAY_MS = 20; // ms per tick → 50 ticks × 2% = 0→100% in ~1 s
 
+// Non-blocking LED blink — set blinkUntil = millis() + duration to trigger
+unsigned long blinkUntil = 0;
+
 // Debug mode (disable for production)
 const bool DEBUG_MODE = false;
 
@@ -213,6 +216,9 @@ void loop()
     // Optional heartbeat for connection monitoring
     sendHeartbeat();
 
+    // Non-blocking status LED blink (replaces statusBlink in command handler)
+    digitalWrite(STATUS_LED, (millis() < blinkUntil) ? HIGH : LOW);
+
     // Small delay to prevent overwhelming the system
     delay(5);
 }
@@ -348,7 +354,8 @@ void processCommand(char *command)
         logBrightnessChange(behavior, brightness);
     }
 
-    statusBlink(1);
+    // Non-blocking LED feedback — does not stall the fade loop
+    blinkUntil = millis() + 160;
     processingCommand = false;
 }
 
@@ -370,15 +377,29 @@ void setChannel(int channel, int pct)
 {
     if (channel == 1)
     {
-        dimmer1.setPower(pct);
-        currentBrightness_CH1 = pct;
-        targetBrightness_CH1 = pct;
+        if (ENABLE_FADING)
+        {
+            targetBrightness_CH1 = pct;
+        }
+        else
+        {
+            dimmer1.setPower(pct);
+            currentBrightness_CH1 = pct;
+            targetBrightness_CH1 = pct;
+        }
     }
     else if (channel == 2)
     {
-        dimmer2.setPower(pct);
-        currentBrightness_CH2 = pct;
-        targetBrightness_CH2 = pct;
+        if (ENABLE_FADING)
+        {
+            targetBrightness_CH2 = pct;
+        }
+        else
+        {
+            dimmer2.setPower(pct);
+            currentBrightness_CH2 = pct;
+            targetBrightness_CH2 = pct;
+        }
     }
 }
 
@@ -464,10 +485,12 @@ void checkSafetyTimeout()
 {
     if (lastCommandTime > 0 && (millis() - lastCommandTime) > COMMAND_TIMEOUT)
     {
-        setBothChannels(0);
-        sendStatus("TIMEOUT - Lights OFF");
-        lastCommandTime = millis(); // Reset to prevent continuous triggers
-        statusBlink(2);
+        // Fade smoothly to off instead of hard-cutting (avoids visible flash)
+        targetBrightness_CH1 = 0;
+        targetBrightness_CH2 = 0;
+        sendStatus("TIMEOUT - Lights fading OFF");
+        lastCommandTime = millis();  // Reset to prevent continuous triggers
+        blinkUntil = millis() + 320; // Two-blink equivalent, non-blocking
     }
 }
 
