@@ -252,7 +252,7 @@ class DimmerManager:
             return False
 
     # ------------------------------------------------------------------
-    def set_full_brightness_test(self) -> bool:
+    def set_full_brightness_test(self, duration_seconds: float | None = None) -> bool:
         """
         Send a single full-brightness command for CLI test mode.
         Uses synchronous serial writes for deterministic test completion.
@@ -263,10 +263,13 @@ class DimmerManager:
 
         self._enter_test_mode()
         behavior = getattr(config, "DIMMER_TEST_BEHAVIOR", "writing")
-        return self._send_command_sync(behavior, 100, "full-brightness")
+        ok = self._send_command_sync(behavior, 100, "full-brightness")
+        if not ok:
+            return False
+        return self._hold_test_duration(duration_seconds)
 
     # ------------------------------------------------------------------
-    def run_dimm_ramp_test(self) -> bool:
+    def run_dimm_ramp_test(self, duration_seconds: float | None = None) -> bool:
         """
         Run a deterministic 0->100->0 brightness ramp for CLI test mode.
         Uses synchronous serial writes with fixed dwell time per step.
@@ -286,16 +289,58 @@ class DimmerManager:
             up.append(100)
         sequence = up + list(reversed(up[:-1]))
 
-        print(
-            f"[DimmerTest] Ramp test started | points={len(sequence)} step={step}% dwell={dwell:.2f}s"
-        )
-        for idx, brightness in enumerate(sequence):
-            if not self._send_command_sync(behavior, brightness, "ramp"):
-                return False
-            if idx < len(sequence) - 1 and dwell > 0.0:
-                time.sleep(dwell)
+        end_time = None
+        if duration_seconds is not None and duration_seconds > 0:
+            end_time = time.monotonic() + duration_seconds
 
-        print("[DimmerTest] Ramp test completed.")
+        if end_time is None:
+            print(
+                f"[DimmerTest] Ramp test started | points={len(sequence)} step={step}% dwell={dwell:.2f}s"
+            )
+            for idx, brightness in enumerate(sequence):
+                if not self._send_command_sync(behavior, brightness, "ramp"):
+                    return False
+                if idx < len(sequence) - 1 and dwell > 0.0:
+                    time.sleep(dwell)
+            print("[DimmerTest] Ramp test completed.")
+            return True
+
+        print(
+            "[DimmerTest] Timed ramp test started | "
+            f"duration={duration_seconds:.1f}s step={step}% dwell={dwell:.2f}s"
+        )
+        while time.monotonic() < end_time:
+            for idx, brightness in enumerate(sequence):
+                if time.monotonic() >= end_time:
+                    break
+                if not self._send_command_sync(behavior, brightness, "ramp"):
+                    return False
+                if idx < len(sequence) - 1 and dwell > 0.0:
+                    remaining = end_time - time.monotonic()
+                    if remaining > 0:
+                        time.sleep(min(dwell, remaining))
+
+        print("[DimmerTest] Timed ramp test completed.")
+        return True
+
+    # ------------------------------------------------------------------
+    def _hold_test_duration(self, duration_seconds: float | None) -> bool:
+        if duration_seconds is None or duration_seconds <= 0:
+            return True
+        if self._controller is None:
+            return False
+
+        end_time = time.monotonic() + duration_seconds
+        print(f"[DimmerTest] Holding test output for {duration_seconds:.1f}s")
+        while time.monotonic() < end_time:
+            remaining = end_time - time.monotonic()
+            try:
+                self._controller.ping()
+            except Exception as exc:
+                print(f"[DimmerTest] hold ping failed: {exc}")
+                self._available = False
+                return False
+            time.sleep(min(5.0, max(0.1, remaining)))
         return True
 
     # ------------------------------------------------------------------
