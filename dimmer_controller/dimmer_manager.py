@@ -242,42 +242,49 @@ class DimmerManager:
 
         now = time.monotonic()
         poll_interval = getattr(config, "PHOTORESISTOR_POLL_INTERVAL", 0.5)
-        
+
         if now - self._last_photoresistor_poll < poll_interval:
             return self._photoresistor_lux
 
         try:
-            # Send PHOTOLUX? command and get raw ADC reading
-            raw_adc = self._controller.send_raw_command(
-                "PHOTOLUX?",
-                expected_prefix="PHOTOLUX:",
-                retries=2,
-            )
-            if raw_adc is None:
-                return self._photoresistor_lux
-
-            # Parse response: "PHOTOLUX:<value>"
-            if not isinstance(raw_adc, str) or not raw_adc.startswith("PHOTOLUX:"):
-                return self._photoresistor_lux
-
-            parts = raw_adc.split(":", 1)
-            if len(parts) != 2:
-                return self._photoresistor_lux
-            raw_adc = int(parts[1].strip())
-
-            # Convert raw ADC to lux using calibration points
-            self._photoresistor_lux = self._adc_to_lux(raw_adc)
+            _raw_adc, lux = self._read_photoresistor_once()
+            self._photoresistor_lux = lux
             self._last_photoresistor_poll = now
             if now - self._last_photoresistor_debug >= 2.0:
                 print(
-                    f"[Photoresistor] raw_adc={raw_adc} lux={self._photoresistor_lux:.1f} (source=arduino)"
+                    f"[Photoresistor] raw_adc={_raw_adc} lux={self._photoresistor_lux:.1f} (source=arduino)"
                 )
                 self._last_photoresistor_debug = now
-            
+
         except Exception as exc:
             print(f"[Photoresistor] ERROR polling ADC: {exc}")
 
         return self._photoresistor_lux
+
+    # ------------------------------------------------------------------
+    def _read_photoresistor_once(self) -> tuple[int | None, float]:
+        """Read one PHOTOLUX sample from Arduino and return (raw_adc, lux)."""
+        if not self._available or self._controller is None or not self._photoresistor_enabled:
+            return None, self._photoresistor_lux
+
+        raw_adc_response = self._controller.send_raw_command(
+            "PHOTOLUX?",
+            expected_prefix="PHOTOLUX:",
+            retries=2,
+        )
+        if raw_adc_response is None:
+            return None, self._photoresistor_lux
+
+        if not isinstance(raw_adc_response, str) or not raw_adc_response.startswith("PHOTOLUX:"):
+            return None, self._photoresistor_lux
+
+        parts = raw_adc_response.split(":", 1)
+        if len(parts) != 2:
+            return None, self._photoresistor_lux
+
+        raw_adc = int(parts[1].strip())
+        lux = self._adc_to_lux(raw_adc)
+        return raw_adc, lux
 
     # ------------------------------------------------------------------
     def _adc_to_lux(self, raw_adc: int) -> float:
@@ -445,9 +452,17 @@ class DimmerManager:
             return False
         try:
             response = self._controller.send_command(behavior, brightness)
-            print(
-                f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | response={response!r}"
-            )
+            if self._photoresistor_enabled:
+                raw_adc, lux = self._read_photoresistor_once()
+                self._photoresistor_lux = lux
+                print(
+                    f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | "
+                    f"response={response!r} | photoresistor_raw={raw_adc} lux={lux:.1f}"
+                )
+            else:
+                print(
+                    f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | response={response!r}"
+                )
             return True
         except Exception as exc:
             print(f"[DimmerTest] {label} failed: {exc}")
