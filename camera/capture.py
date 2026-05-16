@@ -178,6 +178,85 @@ class CameraCapture:
             return
         for line in self._camera_lock_report:
             print(f"[Camera] {line}")
+        self._print_camera_details()
+
+    def _print_camera_details(self) -> None:
+        """Print detailed camera information for debugging."""
+        print("\n[CameraDebug] ========== Camera Details ==========")
+        
+        if self._picam is not None:
+            self._print_picamera2_details()
+        elif self._cap is not None:
+            self._print_cv2_details()
+        else:
+            print("[CameraDebug] No active camera backend")
+        
+        print("[CameraDebug] =====================================\n")
+
+    def _print_picamera2_details(self) -> None:
+        """Print picamera2-specific camera details."""
+        try:
+            print("[CameraDebug] Backend: Picamera2")
+            
+            # Camera info
+            if hasattr(self._picam, "camera_properties"):
+                props = self._picam.camera_properties
+                print(f"[CameraDebug] Camera Model: {props.get('Model', 'Unknown')}")
+                print(f"[CameraDebug] Sensor Size: {props.get('UnitCellSize', 'Unknown')}")
+                print(f"[CameraDebug] Pixel Array: {props.get('PixelArraySize', 'Unknown')}")
+            
+            # Supported controls
+            if hasattr(self._picam, "camera_controls"):
+                controls = self._picam.camera_controls
+                print(f"[CameraDebug] Supported Controls ({len(controls)}):")
+                for ctrl_name in sorted(controls.keys()):
+                    print(f"[CameraDebug]   - {ctrl_name}")
+            
+            # Current control values (best effort)
+            print("[CameraDebug] Current Values (where readable):")
+            for ctrl_name in ["AeEnable", "ExposureTime", "AnalogueGain", "Sensitivity", 
+                             "AwbEnable", "AwbMode", "ExposureValue"]:
+                try:
+                    if hasattr(self._picam, "camera_controls") and ctrl_name in self._picam.camera_controls:
+                        # Try to read via metadata
+                        print(f"[CameraDebug]   {ctrl_name}: (locked in config)")
+                except Exception:
+                    pass
+        except Exception as exc:
+            print(f"[CameraDebug] Error retrieving picamera2 details: {exc}")
+
+    def _print_cv2_details(self) -> None:
+        """Print OpenCV camera details."""
+        try:
+            print("[CameraDebug] Backend: OpenCV (cv2.VideoCapture)")
+            print(f"[CameraDebug] Camera Index: {self._index}")
+            print(f"[CameraDebug] Resolution: {self._width}x{self._height}")
+            print(f"[CameraDebug] FPS: {self._fps}")
+            
+            # Try to read some properties
+            if self._cap is not None and self._cap.isOpened():
+                props_to_check = [
+                    (cv2.CAP_PROP_FRAME_WIDTH, "Frame Width"),
+                    (cv2.CAP_PROP_FRAME_HEIGHT, "Frame Height"),
+                    (cv2.CAP_PROP_FPS, "FPS"),
+                    (cv2.CAP_PROP_EXPOSURE, "Exposure"),
+                    (cv2.CAP_PROP_GAIN, "Gain"),
+                    (cv2.CAP_PROP_AUTO_EXPOSURE, "Auto Exposure"),
+                ]
+                
+                # Only check ISO if available
+                if hasattr(cv2, "CAP_PROP_ISO_SPEED"):
+                    props_to_check.append((cv2.CAP_PROP_ISO_SPEED, "ISO Speed"))
+                
+                print("[CameraDebug] Current Properties:")
+                for prop_id, prop_name in props_to_check:
+                    try:
+                        val = self._cap.get(prop_id)
+                        print(f"[CameraDebug]   {prop_name}: {val}")
+                    except Exception:
+                        pass
+        except Exception as exc:
+            print(f"[CameraDebug] Error retrieving cv2 details: {exc}")
 
     def read_frame(self) -> Optional[np.ndarray]:
         now = time.monotonic()
