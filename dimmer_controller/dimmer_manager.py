@@ -423,17 +423,43 @@ class DimmerManager:
         if self._controller is None:
             return False
 
+        poll_interval = max(0.5, float(getattr(config, "PHOTORESISTOR_POLL_INTERVAL", 1.0)))
         end_time = time.monotonic() + duration_seconds
-        print(f"[DimmerTest] Holding test output for {duration_seconds:.1f}s")
+        last_sensor_print = 0.0
+        sensor_label = "[Photoresistor]" if self._photoresistor_enabled else "[Photoresistor] DISABLED"
+
+        print(f"[DimmerTest] Holding at current brightness for {duration_seconds:.1f}s "
+              f"| sensor={'enabled' if self._photoresistor_enabled else 'disabled'} "
+              f"| poll_interval={poll_interval:.1f}s")
+
         while time.monotonic() < end_time:
-            remaining = end_time - time.monotonic()
+            now = time.monotonic()
+            remaining = end_time - now
+
+            # Photoresistor poll — every poll_interval seconds
+            if self._photoresistor_enabled and (now - last_sensor_print) >= poll_interval:
+                try:
+                    raw_adc, lux = self._read_photoresistor_once()
+                    self._photoresistor_lux = lux
+                    raw_text = raw_adc if raw_adc is not None else "n/a"
+                    print(f"{sensor_label} raw_adc={raw_text} lux={lux:.1f} "
+                          f"| t_remaining={remaining:.1f}s")
+                    last_sensor_print = now
+                except Exception as exc:
+                    print(f"[Photoresistor] ERROR during hold read: {exc}")
+                    last_sensor_print = now  # back-off so we don't spam errors
+
             try:
                 self._controller.ping()
             except Exception as exc:
                 print(f"[DimmerTest] hold ping failed: {exc}")
                 self._available = False
                 return False
-            time.sleep(min(5.0, max(0.1, remaining)))
+
+            # Sleep until next sensor poll or end, whichever is sooner
+            sleep_for = min(poll_interval, max(0.05, remaining))
+            time.sleep(sleep_for)
+
         return True
 
     # ------------------------------------------------------------------
