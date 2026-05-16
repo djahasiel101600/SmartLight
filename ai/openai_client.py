@@ -81,6 +81,21 @@ _SYSTEM_PROMPT = (
     "Respond with valid JSON only."
 )
 
+_USER_PROMPT = (
+    "Analyze the human activity in this image.\n\n"
+    "Return ONLY this JSON structure:\n"
+    "{\n"
+    '  "activity": "<one of the allowed labels>",\n'
+    '  "confidence": <integer from 0 to 100>,\n'
+    '  "reasoning": "<brief one-sentence explanation>"\n'
+    "}\n\n"
+    "Rules:\n"
+    "- Choose Reading Book/s only if the person is clearly reading a book, notebook, paper, or printed material.\n"
+    "- Choose Using Cellphone only if the person is clearly holding or looking at a phone.\n"
+    "- Choose Using Laptop only if the person is clearly using or looking at a laptop.\n"
+    "- Choose Writing only if the person is clearly writing with a pen, pencil, stylus, or similar tool.\n"
+    "- Choose Idle if none of the above activities are clearly visible."
+)
 
 # ---------------------------------------------------------------------------
 @dataclass
