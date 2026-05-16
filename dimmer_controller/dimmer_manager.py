@@ -88,6 +88,7 @@ class DimmerManager:
 
         # Photoresistor polling
         self._photoresistor_lux: float = 0.0
+        self._ema_lux: float | None = None   # EMA state; None until first reading
         self._last_photoresistor_poll: float = 0.0
         self._last_photoresistor_debug: float = 0.0
         self._photoresistor_enabled = getattr(config, "PHOTORESISTOR_ENABLED", False)
@@ -248,11 +249,12 @@ class DimmerManager:
 
         try:
             _raw_adc, lux = self._read_photoresistor_once()
-            self._photoresistor_lux = lux
+            smoothed_lux = self._apply_lux_ema(lux)
+            self._photoresistor_lux = smoothed_lux
             self._last_photoresistor_poll = now
             if now - self._last_photoresistor_debug >= 2.0:
                 print(
-                    f"[Photoresistor] raw_adc={_raw_adc} lux={self._photoresistor_lux:.1f} (source=arduino)"
+                    f"[Photoresistor] raw_adc={_raw_adc} lux={smoothed_lux:.1f} (smoothed, source=arduino)"
                 )
                 self._last_photoresistor_debug = now
 
@@ -316,6 +318,21 @@ class DimmerManager:
                 return lux
 
         return 0.0
+
+    # ------------------------------------------------------------------
+    def _apply_lux_ema(self, new_lux: float) -> float:
+        """
+        Apply Exponential Moving Average to smooth noisy lux readings.
+        smoothed = alpha * new + (1 - alpha) * previous
+        First call seeds the state directly so there is no cold-start lag.
+        """
+        alpha = float(getattr(config, "PHOTORESISTOR_SMOOTHING_ALPHA", 0.15))
+        alpha = max(0.01, min(1.0, alpha))  # clamp to valid range
+        if self._ema_lux is None:
+            self._ema_lux = new_lux
+        else:
+            self._ema_lux = alpha * new_lux + (1.0 - alpha) * self._ema_lux
+        return self._ema_lux
 
     # ------------------------------------------------------------------
     def keepalive(self) -> None:
@@ -413,6 +430,7 @@ class DimmerManager:
                 time.sleep(poll_interval)
                 continue
 
+            smoothed_lux = self._apply_lux_ema(lux)
             error = raw_adc - target_adc
             in_band = abs(error) <= DEADBAND
             remaining_str = f"{end_time - time.monotonic():.1f}s" if end_time else "∞"
@@ -420,7 +438,7 @@ class DimmerManager:
 
             print(
                 f"[RawSeek] raw_adc={raw_adc} | target={target_adc} | error={error:+d} "
-                f"| brightness={brightness}% | lux={lux:.1f} | {state} | t={remaining_str}"
+                f"| brightness={brightness}% | lux={smoothed_lux:.1f} | {state} | t={remaining_str}"
             )
 
             if in_band:
@@ -432,7 +450,7 @@ class DimmerManager:
             if streak >= SETTLE_STREAK:
                 print(
                     f"[RawSeek] Settled: raw_adc~{target_adc} "
-                    f"(actual={raw_adc}) at brightness={brightness}% lux~{lux:.1f}"
+                    f"(actual={raw_adc}) at brightness={brightness}% lux~{smoothed_lux:.1f}"
                 )
                 if end_time:
                     remaining = end_time - time.monotonic()
@@ -508,12 +526,13 @@ class DimmerManager:
             if self._photoresistor_enabled and (now - last_sensor_print) >= poll_interval:
                 try:
                     raw_adc, lux = self._read_photoresistor_once()
-                    self._photoresistor_lux = lux
-                    diff = lux - target_lux
+                    smoothed_lux = self._apply_lux_ema(lux)
+                    self._photoresistor_lux = smoothed_lux
+                    diff = smoothed_lux - target_lux
                     sign = "+" if diff >= 0 else ""
                     raw_text = raw_adc if raw_adc is not None else "n/a"
                     print(
-                        f"[LuxTest] raw_adc={raw_text} sensor_lux={lux:.1f} "
+                        f"[LuxTest] raw_adc={raw_text} sensor_lux={smoothed_lux:.1f} "
                         f"| target={target_lux:.1f} diff={sign}{diff:.1f} "
                         f"| t_remaining={remaining:.1f}s"
                     )
@@ -630,9 +649,10 @@ class DimmerManager:
             if self._photoresistor_enabled and (now - last_sensor_print) >= poll_interval:
                 try:
                     raw_adc, lux = self._read_photoresistor_once()
-                    self._photoresistor_lux = lux
+                    smoothed_lux = self._apply_lux_ema(lux)
+                    self._photoresistor_lux = smoothed_lux
                     raw_text = raw_adc if raw_adc is not None else "n/a"
-                    print(f"{sensor_label} raw_adc={raw_text} lux={lux:.1f} "
+                    print(f"{sensor_label} raw_adc={raw_text} lux={smoothed_lux:.1f} "
                           f"| t_remaining={remaining:.1f}s")
                     last_sensor_print = now
                 except Exception as exc:
