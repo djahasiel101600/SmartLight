@@ -29,8 +29,8 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # In practice: exposure + gain/ISO set the sensor’s raw brightness response, AWB/EV can add processing-side variation, and locking all of them trades visual adaptability for stable, comparable lux readings.
 
 CAMERA_LOCK_ENABLED: bool = True
-CAMERA_LOCK_EXPOSURE_US: int = 15000    # Exposure time in microseconds
-CAMERA_LOCK_ANALOG_GAIN: float = 1.0    # Picamera2 AnalogueGain target
+CAMERA_LOCK_EXPOSURE_US: int = 10000    # Exposure time in microseconds
+CAMERA_LOCK_ANALOG_GAIN: float = 4.0    # Picamera2 AnalogueGain target
 CAMERA_LOCK_ISO: int = 240              # Best-effort fallback for backends supporting ISO
 CAMERA_LOCK_AWB_ENABLED: bool = False   # False keeps color processing stable for lux trends
 CAMERA_LOCK_AWB_MODE = None             # Picamera2 expects int enum; None means do not force mode
