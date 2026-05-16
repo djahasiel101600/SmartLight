@@ -6,7 +6,7 @@ every LUX_CONTROL_INTERVAL seconds to keep the calibrated camera-estimated
 lux within the IES-recommended range for the current activity.
 
 Dead-band logic (evaluated per tick):
-    calibrated_lux = raw_lux * LUX_CALIBRATION_SCALE
+    calibrated_lux = raw_lux * LUX_CALIBRATION_SCALE + LUX_CALIBRATION_OFFSET
     calibrated_lux < range_min  →  brightness += LUX_STEP_SIZE   (too dark, brighten)
     calibrated_lux > range_max  →  brightness -= LUX_STEP_SIZE   (too bright, dim)
     within [range_min, range_max]  →  hold (no serial command)
@@ -120,7 +120,10 @@ class LuxController:
         if now - self._last_tick < self._interval:
             return self._brightness, False
 
-        calibrated = current_lux * config.LUX_CALIBRATION_SCALE
+        calibrated = (
+            current_lux * config.LUX_CALIBRATION_SCALE
+            + getattr(config, "LUX_CALIBRATION_OFFSET", 0.0)
+        )
         lo, hi = target_range
 
         # Derive the valid brightness range for this lux band from the table.
