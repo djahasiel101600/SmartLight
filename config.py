@@ -132,7 +132,9 @@ LUX_BRIGHTNESS_TABLE: list = [
 # to the camera, read both values, then set:
 #   LUX_CALIBRATION_SCALE = <meter reading> / <_estimate_lux() output>
 # Default 1.0 means no correction (relative control only).
-LUX_CALIBRATION_SCALE: float = 0.59
+LUX_CALIBRATION_SCALE: float = 1.0875
+
+# 16 lx & 17.4 meter
 
 # Behavior label sent to the Arduino (must match your Arduino firmware).
 DIMMER_BEHAVIOR: dict = {
