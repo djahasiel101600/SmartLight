@@ -416,6 +416,7 @@ def run_test_mode(
     test_lux: float | None = None,
     test_raw: int | None = None,
     test_seconds: float | None = None,
+    interactive: bool = False,
 ) -> int:
     """Run dimmer-only diagnostics and return process exit code."""
     logger = StructuredLogger()
@@ -454,11 +455,18 @@ def run_test_mode(
             if test_seconds is not None and test_seconds > 0:
                 logger.log_info(
                     f"Starting raw ADC seek test (target_raw={test_raw}, "
-                    f"time_limit={test_seconds:.1f}s)."
+                    f"time_limit={test_seconds:.1f}s, interactive={interactive})."
                 )
             else:
-                logger.log_info(f"Starting raw ADC seek test (target_raw={test_raw}).")
-            ok = dimmer.seek_raw_adc_test(target_adc=test_raw, duration_seconds=test_seconds)
+                logger.log_info(
+                    f"Starting raw ADC seek test (target_raw={test_raw}, "
+                    f"interactive={interactive})."
+                )
+            ok = dimmer.seek_raw_adc_test(
+                target_adc=test_raw,
+                duration_seconds=test_seconds,
+                interactive=interactive,
+            )
         else:
             logger.log_error("No dimmer test mode selected.")
             return 2
@@ -521,6 +529,15 @@ if __name__ == "__main__":
         default=None,
         help="Optional duration (seconds) for --test-dimm or --test-full-brightness.",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help=(
+            "Step mode for --test-raw: pause at each brightness adjustment so you can "
+            "observe the photoresistor and lux meter before stepping. "
+            "Press Enter (or Space+Enter) to advance, q+Enter to quit."
+        ),
+    )
     args = parser.parse_args()
 
     if args.test_seconds is not None and args.test_seconds <= 0:
@@ -541,6 +558,9 @@ if __name__ == "__main__":
     if args.test_raw is not None and not (0 <= args.test_raw <= 1023):
         parser.error("--test-raw must be between 0 and 1023.")
 
+    if args.interactive and args.test_raw is None:
+        parser.error("--interactive only applies to --test-raw.")
+
     if args.test_dimm or args.test_full_brightness \
             or args.test_lux is not None or args.test_raw is not None:
         exit_code = run_test_mode(
@@ -549,6 +569,7 @@ if __name__ == "__main__":
             test_lux=args.test_lux,
             test_raw=args.test_raw,
             test_seconds=args.test_seconds,
+            interactive=args.interactive,
         )
         sys.exit(exit_code)
 

@@ -362,8 +362,24 @@ class DimmerManager:
             return False
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _wait_for_step() -> bool:
+        """
+        Pause until the user presses Enter (or Space + Enter) to confirm
+        the next brightness step, or types 'q' + Enter to cancel.
+        Returns True to continue, False to quit.
+        """
+        try:
+            reply = input("  ▶ Press Enter to step  |  q + Enter to quit: ")
+            return reply.strip().lower() != "q"
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return False
+
+    # ------------------------------------------------------------------
     def seek_raw_adc_test(
-        self, target_adc: int, duration_seconds: float | None = None
+        self, target_adc: int, duration_seconds: float | None = None,
+        interactive: bool = False,
     ) -> bool:
         """
         Closed-loop seek: nudge dimmer brightness until the photoresistor
@@ -404,8 +420,7 @@ class DimmerManager:
 
         print(
             f"[RawSeek] target_raw={target_adc} | deadband=±{DEADBAND} | step={STEP}% "
-            f"| estimated_lux={estimated_lux:.1f} | initial_brightness={brightness}%"
-        )
+            f"| estimated_lux={estimated_lux:.1f} | initial_brightness={brightness}%"            + (" | mode=INTERACTIVE (Enter to step, q to quit)" if interactive else "")        )
 
         if not self._send_command_sync(behavior, brightness, "raw-seek"):
             return False
@@ -466,7 +481,9 @@ class DimmerManager:
             else:
                 new_brightness = max(0, brightness - STEP)
 
-            if new_brightness == brightness:
+            will_change = new_brightness != brightness
+
+            if not will_change:
                 stuck_iters += 1
                 if stuck_iters == MAX_STUCK_ITERS:
                     print(
@@ -474,13 +491,22 @@ class DimmerManager:
                         f"raw_adc={raw_adc} is still outside target {target_adc}\u00b1{DEADBAND}. "
                         "Target ADC may be outside the dimmer's reachable range."
                     )
-            else:
+
+            if interactive:
+                if will_change:
+                    print(f"  [next step] brightness {brightness}% → {new_brightness}%")
+                if not self._wait_for_step():
+                    print("[RawSeek] Cancelled by user.")
+                    return True
+
+            if will_change:
                 stuck_iters = 0
                 brightness = new_brightness
                 if not self._send_command_sync(behavior, brightness, "raw-seek"):
                     return False
 
-            time.sleep(poll_interval)
+            if not interactive:
+                time.sleep(poll_interval)
 
         return True
 
