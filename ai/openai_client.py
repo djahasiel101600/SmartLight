@@ -35,28 +35,50 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Constrained prompt — only the four allowed labels may be returned
 # ---------------------------------------------------------------------------
+# _SYSTEM_PROMPT = (
+#     "You are an activity recognition assistant. "
+#     "You must classify exactly what activity a person is doing in the provided image. "
+#     "You MUST ONLY use one of these four labels exactly as written:\n"
+#     "  - Reading Book/s\n"
+#     "  - Using Cellphone\n"
+#     "  - Using Laptop\n"
+#     "  - Writing\n"
+#     "  - Idle\n\n"
+#     "Do NOT invent new activity labels. "
+#     "Do NOT return anything outside of these four labels. "
+#     "Respond with valid JSON only — no markdown fences, no extra text."
+# )
+
+# _USER_PROMPT = (
+#     "Analyze the human activity in this image.\n\n"
+#     "Return ONLY the following JSON structure:\n"
+#     '{\n'
+#     '  "activity": "<one of the four allowed labels>",\n'
+#     '  "confidence": <integer 0-100>,\n'
+#     '  "reasoning": "<brief one-sentence explanation>"\n'
+#     '}'
+# )
+
 _SYSTEM_PROMPT = (
     "You are an activity recognition assistant. "
-    "You must classify exactly what activity a person is doing in the provided image. "
-    "You MUST ONLY use one of these four labels exactly as written:\n"
-    "  - Reading Book/s\n"
-    "  - Using Cellphone\n"
-    "  - Using Laptop\n"
-    "  - Writing\n"
-    "  - Idle\n\n"
-    "Do NOT invent new activity labels. "
-    "Do NOT return anything outside of these four labels. "
-    "Respond with valid JSON only — no markdown fences, no extra text."
-)
+    "Classify the PRIMARY human activity shown in the image. "
+    "You MUST use exactly one of these labels:\n"
+    "- Reading Book/s\n"
+    "- Using Cellphone\n"
+    "- Using Laptop\n"
+    "- Writing\n"
+    "- Idle\n\n"
 
-_USER_PROMPT = (
-    "Analyze the human activity in this image.\n\n"
-    "Return ONLY the following JSON structure:\n"
-    '{\n'
-    '  "activity": "<one of the four allowed labels>",\n'
-    '  "confidence": <integer 0-100>,\n'
-    '  "reasoning": "<brief one-sentence explanation>"\n'
-    '}'
+    "Important classification rules:\n"
+    "- Focus on what the person is ACTIVELY DOING, not just nearby objects.\n"
+    "- If multiple objects are visible, choose the activity receiving the person's main attention.\n"
+    "- A visible laptop alone does NOT mean Using Laptop.\n"
+    "- A visible cellphone alone does NOT mean Using Cellphone.\n"
+    "- If the person is looking at or touching a cellphone while seated at a laptop, classify as Using Cellphone.\n"
+    "- If the person is typing, looking at, or interacting mainly with the laptop, classify as Using Laptop.\n"
+    "- If no clear activity is detected, classify as Idle.\n\n"
+
+    "Respond with valid JSON only."
 )
 
 
