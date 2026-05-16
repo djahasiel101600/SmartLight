@@ -345,6 +345,128 @@ class DimmerManager:
             return False
 
     # ------------------------------------------------------------------
+    def seek_raw_adc_test(
+        self, target_adc: int, duration_seconds: float | None = None
+    ) -> bool:
+        """
+        Closed-loop seek: nudge dimmer brightness until the photoresistor
+        stabilises at target_adc (0–1023 raw).  Once settled, optionally
+        hold for duration_seconds while still printing live sensor readings.
+
+        Direction rule: more brightness → higher ADC; less brightness → lower ADC.
+        """
+        DEADBAND = 15        # ±ADC units considered "close enough"
+        STEP = 2             # brightness % change per control tick
+        SETTLE_STREAK = 5    # consecutive in-band reads to declare settled
+        MAX_STUCK_ITERS = 30 # warn after this many ticks stuck at a brightness rail
+
+        if not self._available or self._controller is None:
+            print("[RawSeek] Arduino not available.")
+            return False
+
+        if not self._photoresistor_enabled:
+            print("[RawSeek] Photoresistor is disabled – cannot run ADC seek test.")
+            return False
+
+        if not (0 <= target_adc <= 1023):
+            print(f"[RawSeek] target_adc={target_adc} out of range (0–1023).")
+            return False
+
+        # Smart start: derive an initial brightness from the calibration curve
+        estimated_lux = self._adc_to_lux(target_adc)
+        brightness = _lux_to_brightness(estimated_lux)
+
+        self._enter_test_mode()
+        behavior = getattr(config, "DIMMER_TEST_BEHAVIOR", "writing")
+        poll_interval = max(0.5, float(getattr(config, "PHOTORESISTOR_POLL_INTERVAL", 1.0)))
+        end_time = (
+            (time.monotonic() + duration_seconds)
+            if duration_seconds and duration_seconds > 0
+            else None
+        )
+
+        print(
+            f"[RawSeek] target_raw={target_adc} | deadband=±{DEADBAND} | step={STEP}% "
+            f"| estimated_lux={estimated_lux:.1f} | initial_brightness={brightness}%"
+        )
+
+        if not self._send_command_sync(behavior, brightness, "raw-seek"):
+            return False
+
+        streak = 0
+        stuck_iters = 0
+
+        while True:
+            if end_time and time.monotonic() >= end_time:
+                print("[RawSeek] Time limit reached before settling.")
+                break
+
+            try:
+                raw_adc, lux = self._read_photoresistor_once()
+            except Exception as exc:
+                print(f"[RawSeek] Sensor read error: {exc}")
+                time.sleep(poll_interval)
+                continue
+
+            if raw_adc is None:
+                print("[RawSeek] Sensor returned n/a, retrying...")
+                time.sleep(poll_interval)
+                continue
+
+            error = raw_adc - target_adc
+            in_band = abs(error) <= DEADBAND
+            remaining_str = f"{end_time - time.monotonic():.1f}s" if end_time else "∞"
+            state = "SETTLED" if in_band else "seeking "
+
+            print(
+                f"[RawSeek] raw_adc={raw_adc} | target={target_adc} | error={error:+d} "
+                f"| brightness={brightness}% | lux={lux:.1f} | {state} | t={remaining_str}"
+            )
+
+            if in_band:
+                streak += 1
+                stuck_iters = 0
+            else:
+                streak = 0
+
+            if streak >= SETTLE_STREAK:
+                print(
+                    f"[RawSeek] Settled: raw_adc~{target_adc} "
+                    f"(actual={raw_adc}) at brightness={brightness}% lux~{lux:.1f}"
+                )
+                if end_time:
+                    remaining = end_time - time.monotonic()
+                    if remaining > 0:
+                        self._hold_test_duration(remaining)
+                break
+
+            # More light → higher ADC; so:
+            #   ADC too low  → raise brightness
+            #   ADC too high → lower brightness
+            if error < -DEADBAND:
+                new_brightness = min(100, brightness + STEP)
+            else:
+                new_brightness = max(0, brightness - STEP)
+
+            if new_brightness == brightness:
+                stuck_iters += 1
+                if stuck_iters == MAX_STUCK_ITERS:
+                    print(
+                        f"[RawSeek] WARNING: brightness clamped at {brightness}% but "
+                        f"raw_adc={raw_adc} is still outside target {target_adc}\u00b1{DEADBAND}. "
+                        "Target ADC may be outside the dimmer's reachable range."
+                    )
+            else:
+                stuck_iters = 0
+                brightness = new_brightness
+                if not self._send_command_sync(behavior, brightness, "raw-seek"):
+                    return False
+
+            time.sleep(poll_interval)
+
+        return True
+
+    # ------------------------------------------------------------------
     def set_target_lux_test(
         self, target_lux: float, duration_seconds: float | None = None
     ) -> bool:
