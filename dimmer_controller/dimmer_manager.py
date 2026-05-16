@@ -89,6 +89,7 @@ class DimmerManager:
         # Photoresistor polling
         self._photoresistor_lux: float = 0.0
         self._last_photoresistor_poll: float = 0.0
+        self._last_photoresistor_debug: float = 0.0
         self._photoresistor_enabled = getattr(config, "PHOTORESISTOR_ENABLED", False)
 
         if not config.DIMMER_ENABLED:
@@ -247,21 +248,31 @@ class DimmerManager:
 
         try:
             # Send PHOTOLUX? command and get raw ADC reading
-            raw_adc = self._controller.send_raw_command("PHOTOLUX?")
+            raw_adc = self._controller.send_raw_command(
+                "PHOTOLUX?",
+                expected_prefix="PHOTOLUX:",
+                retries=2,
+            )
             if raw_adc is None:
                 return self._photoresistor_lux
-            
+
             # Parse response: "PHOTOLUX:<value>"
-            if isinstance(raw_adc, str) and ":" in raw_adc:
-                parts = raw_adc.split(":")
-                if len(parts) == 2:
-                    raw_adc = int(parts[1].strip())
-            else:
-                raw_adc = int(raw_adc) if isinstance(raw_adc, str) else raw_adc
+            if not isinstance(raw_adc, str) or not raw_adc.startswith("PHOTOLUX:"):
+                return self._photoresistor_lux
+
+            parts = raw_adc.split(":", 1)
+            if len(parts) != 2:
+                return self._photoresistor_lux
+            raw_adc = int(parts[1].strip())
 
             # Convert raw ADC to lux using calibration points
             self._photoresistor_lux = self._adc_to_lux(raw_adc)
             self._last_photoresistor_poll = now
+            if now - self._last_photoresistor_debug >= 2.0:
+                print(
+                    f"[Photoresistor] raw_adc={raw_adc} lux={self._photoresistor_lux:.1f} (source=arduino)"
+                )
+                self._last_photoresistor_debug = now
             
         except Exception as exc:
             print(f"[Photoresistor] ERROR polling ADC: {exc}")
