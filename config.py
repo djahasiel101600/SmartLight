@@ -121,7 +121,9 @@ PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
 # 4. System will use linear interpolation between calibration points
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     100: 8,      # Raw ADC 100 ≈ 20 lux  (estimate – calibrate at dim light)
-    300: 57,     # Raw ADC 552 = 516 lux  (measured 2026-05-16, full brightness)
+    170: 19,
+    300: 57,
+    415: 150, # Raw ADC 552 = 516 lux  (measured 2026-05-16, full brightness)
     564: 860,   # Raw ADC 1023 ≈ 1500 lux (estimate – calibrate at brighter source)
 }
 
