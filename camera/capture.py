@@ -110,9 +110,14 @@ class CameraCapture:
         _set_if_supported("AwbEnable", bool(getattr(config, "CAMERA_LOCK_AWB_ENABLED", False)))
         _set_if_supported("ExposureValue", float(getattr(config, "CAMERA_LOCK_EV", 0.0)))
 
-        awb_mode = getattr(config, "CAMERA_LOCK_AWB_MODE", "auto")
+        awb_mode = getattr(config, "CAMERA_LOCK_AWB_MODE", None)
         if "AwbMode" in supported and awb_mode is not None:
-            controls["AwbMode"] = awb_mode
+            if isinstance(awb_mode, (int, float)):
+                controls["AwbMode"] = int(awb_mode)
+            else:
+                self._camera_lock_report.append(
+                    "ignored invalid AwbMode type (expected int enum)"
+                )
         elif "AwbMode" not in supported:
             self._camera_lock_report.append("unsupported (picamera2): AwbMode")
 
