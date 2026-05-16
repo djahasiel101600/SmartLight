@@ -108,6 +108,10 @@ PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
 PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.15
 # EMA smoothing factor for lux readings (0.01 = very smooth/slow, 1.0 = no smoothing/raw).
 # 0.15 averages ~6 recent samples — stable for slow-changing ambient light.
+PHOTORESISTOR_SETTLE_DELAY: float = 2
+# Seconds to wait after a brightness change before reading the photoresistor.
+# Gives the bulb and LDR time to physically settle at the new level.
+# Increase if readings still lag after steps; 0.5–1.5s is typical for AC dimmers.
 
 # Photoresistor ADC-to-lux calibration data.
 # Format: { raw_adc_reading: lux_value, ... }

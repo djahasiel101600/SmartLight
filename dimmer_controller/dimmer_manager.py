@@ -504,6 +504,11 @@ class DimmerManager:
                 brightness = new_brightness
                 if not self._send_command_sync(behavior, brightness, "raw-seek"):
                     return False
+                # Wait for bulb and LDR to physically settle at the new level
+                settle_delay = float(getattr(config, "PHOTORESISTOR_SETTLE_DELAY", 0.8))
+                if settle_delay > 0:
+                    print(f"  [settle] waiting {settle_delay:.1f}s for bulb to stabilise...")
+                    time.sleep(settle_delay)
 
             if not interactive:
                 time.sleep(poll_interval)
