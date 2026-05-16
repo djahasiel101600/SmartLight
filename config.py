@@ -120,9 +120,9 @@ PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
 # 3. Update this dict with at least 2 calibration pairs
 # 4. System will use linear interpolation between calibration points
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
-    100: 20,      # Raw ADC 100 ≈ 20 lux (dim light)
-    500: 100,     # Raw ADC 500 ≈ 100 lux (medium light)
-    1000: 1000,   # Raw ADC 1023 (max) ≈ 1000 lux (bright light)
+    100: 20,      # Raw ADC 100 ≈ 20 lux  (estimate – calibrate at dim light)
+    552: 516,     # Raw ADC 552 = 516 lux  (measured 2026-05-16, full brightness)
+    1023: 1500,   # Raw ADC 1023 ≈ 1500 lux (estimate – calibrate at brighter source)
 }
 
 # ---------------------------------------------------------------------------
@@ -160,7 +160,7 @@ LUX_BRIGHTNESS_TABLE: list = [
 # to the camera, read both values, then set:
 #   LUX_CALIBRATION_SCALE = <meter reading> / <_estimate_lux() output>
 # Default 1.0 means no correction (relative control only).
-LUX_CALIBRATION_SCALE: float = 12.9 / 79
+LUX_CALIBRATION_SCALE: float = 1
 
 # Calibration offset: adds a fixed lux bias after scaling.
 # This is useful when the room has steady ambient light that causes the
