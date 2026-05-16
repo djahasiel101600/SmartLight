@@ -132,7 +132,7 @@ LUX_BRIGHTNESS_TABLE: list = [
 # to the camera, read both values, then set:
 #   LUX_CALIBRATION_SCALE = <meter reading> / <_estimate_lux() output>
 # Default 1.0 means no correction (relative control only).
-LUX_CALIBRATION_SCALE: float = 1.0875
+LUX_CALIBRATION_SCALE: float = 175.3 / 83
 
 # 16 lx & 17.4 meter
 
