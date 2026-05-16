@@ -126,14 +126,13 @@ PHOTORESISTOR_SETTLE_DELAY: float = 2
 # 2. In different light conditions, note the ADC raw value and meter reading
 # 3. Update this dict with at least 2 calibration pairs
 # 4. System will use linear interpolation between calibration points
+# format: [raw adc]: [lux from meter]
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
-    90:8,      # Raw ADC 100 ≈ 20 lux  (estimate – calibrate at dim light)
-    170: 18,
-    177.15: 20,
-    200:32,
-    257.71: 45,
-    348.35: 116, # Raw ADC 552 = 516 lux  (measured 2026-05-16, full brightness)
-    564: 860,   # Raw ADC 1023 ≈ 1500 lux (estimate – calibrate at brighter source)
+    108: 9.2,
+    204: 23.3,
+    287: 47.2,
+    407: 127,
+    486: 324
 }
 
 # ---------------------------------------------------------------------------
