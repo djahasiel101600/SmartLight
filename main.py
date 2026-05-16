@@ -358,7 +358,11 @@ def run(headless: bool = config.HEADLESS) -> None:
             )
 
             # 6. Dimmer — lux-based closed-loop control
-            _lux = _estimate_lux(frame)
+            # Use photoresistor if enabled, otherwise fall back to camera lux estimate
+            if config.PHOTORESISTOR_ENABLED:
+                _lux = dimmer.poll_photoresistor()
+            else:
+                _lux = _estimate_lux(frame)
             dimmer.update(stable_activity, _lux)
             dimmer.keepalive()
 

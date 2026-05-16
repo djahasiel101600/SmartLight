@@ -35,6 +35,13 @@ class DimmerController:
         response = self.ser.readline().decode().strip()
         return 'PONG' in response
 
+    def send_raw_command(self, command):
+        """Send a raw command and return the response"""
+        cmd = f"{command}\n"
+        self.ser.write(cmd.encode())
+        response = self.ser.readline().decode().strip()
+        return response
+
 # Usage example
 # dimmer = DimmerController()
 # dimmer.send_command("idle", 30)

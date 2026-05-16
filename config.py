@@ -98,6 +98,34 @@ DIMMER_TEST_STEP: int = 10
 DIMMER_TEST_DWELL_SECONDS: float = 0.4
 
 # ---------------------------------------------------------------------------
+# Photoresistor Sensor (Arduino ADC via Serial)
+# ---------------------------------------------------------------------------
+# When enabled, use hardware photoresistor readings instead of camera-based lux.
+# Photoresistor is connected to Arduino A2 with 10k ohm resistor divider.
+# The Arduino responds to "PHOTOLUX?" command with raw ADC reading (0-1023).
+PHOTORESISTOR_ENABLED: bool = True
+PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
+
+# Photoresistor ADC-to-lux calibration data.
+# Format: { raw_adc_reading: lux_value, ... }
+# Calibrate by measuring with a real lux meter at different light levels,
+# recording both the Arduino ADC raw value (0-1023) and the meter reading.
+# Example: If meter reads 50 lux when Arduino ADC = 100, and 500 lux when ADC = 800,
+# then set PHOTORESISTOR_CALIBRATION_POINTS = { 100: 50, 800: 500 }
+# The system will interpolate between these points.
+#
+# To calibrate:
+# 1. Run the script with photoresistor enabled
+# 2. In different light conditions, note the ADC raw value and meter reading
+# 3. Update this dict with at least 2 calibration pairs
+# 4. System will use linear interpolation between calibration points
+PHOTORESISTOR_CALIBRATION_POINTS: dict = {
+    100: 20,      # Raw ADC 100 ≈ 20 lux (dim light)
+    500: 100,     # Raw ADC 500 ≈ 100 lux (medium light)
+    1000: 1000,   # Raw ADC 1023 (max) ≈ 1000 lux (bright light)
+}
+
+# ---------------------------------------------------------------------------
 # IES-Based Lux Control (replaces fixed DIMMER_BRIGHTNESS)
 # ---------------------------------------------------------------------------
 # Target illuminance ranges per activity, sourced from Illuminating Engineering

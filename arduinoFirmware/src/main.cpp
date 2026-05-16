@@ -75,6 +75,7 @@ void sendStatusReport();
 void logBrightnessChange(char *behavior, int brightness);
 void resetDevice();
 void disconnectDevice();
+void sendPhotoresistorReading();
 void printDebug(const char *label, int value);
 void printDebug(const char *label, const char *value);
 
@@ -263,6 +264,14 @@ void processCommand(char *command)
     if (strcmp(command, "DISCONNECT") == 0)
     {
         disconnectDevice();
+        processingCommand = false;
+        return;
+    }
+
+    // PHOTOLUX? — return raw ADC reading from photoresistor
+    if (strcmp(command, "PHOTOLUX?") == 0)
+    {
+        sendPhotoresistorReading();
         processingCommand = false;
         return;
     }
@@ -681,6 +690,14 @@ void sendStatusReport()
     Serial.print(currentBrightness_CH2);
     Serial.print(",TIMEOUT=");
     Serial.println(timeoutEnabled ? "ON" : "OFF");
+}
+
+void sendPhotoresistorReading()
+{
+    // Read raw ADC value from photoresistor (0-1023 on 10-bit ADC)
+    int rawReading = analogRead(PHOTORESISTOR_PIN);
+    Serial.print("PHOTOLUX:");
+    Serial.println(rawReading);
 }
 
 void logBrightnessChange(char *behavior, int brightness)

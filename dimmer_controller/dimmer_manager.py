@@ -86,6 +86,11 @@ class DimmerManager:
         # Closed-loop lux controller
         self._lux_ctrl = LuxController()
 
+        # Photoresistor polling
+        self._photoresistor_lux: float = 0.0
+        self._last_photoresistor_poll: float = 0.0
+        self._photoresistor_enabled = getattr(config, "PHOTORESISTOR_ENABLED", False)
+
         if not config.DIMMER_ENABLED:
             print("[Dimmer] Disabled in config.")
             return
@@ -223,6 +228,76 @@ class DimmerManager:
             print(f"[Dimmer] ERROR queuing lux-adjust: {exc}")
             self._available = False
             return False
+
+    # ------------------------------------------------------------------
+    def poll_photoresistor(self) -> float:
+        """
+        Poll Arduino for photoresistor ADC reading and convert to lux.
+        Returns the calibrated lux value, or 0.0 if polling fails.
+        Polls periodically based on PHOTORESISTOR_POLL_INTERVAL.
+        """
+        if not self._available or self._controller is None or not self._photoresistor_enabled:
+            return 0.0
+
+        now = time.monotonic()
+        poll_interval = getattr(config, "PHOTORESISTOR_POLL_INTERVAL", 0.5)
+        
+        if now - self._last_photoresistor_poll < poll_interval:
+            return self._photoresistor_lux
+
+        try:
+            # Send PHOTOLUX? command and get raw ADC reading
+            raw_adc = self._controller.send_raw_command("PHOTOLUX?")
+            if raw_adc is None:
+                return self._photoresistor_lux
+            
+            # Parse response: "PHOTOLUX:<value>"
+            if isinstance(raw_adc, str) and ":" in raw_adc:
+                parts = raw_adc.split(":")
+                if len(parts) == 2:
+                    raw_adc = int(parts[1].strip())
+            else:
+                raw_adc = int(raw_adc) if isinstance(raw_adc, str) else raw_adc
+
+            # Convert raw ADC to lux using calibration points
+            self._photoresistor_lux = self._adc_to_lux(raw_adc)
+            self._last_photoresistor_poll = now
+            
+        except Exception as exc:
+            print(f"[Photoresistor] ERROR polling ADC: {exc}")
+
+        return self._photoresistor_lux
+
+    # ------------------------------------------------------------------
+    def _adc_to_lux(self, raw_adc: int) -> float:
+        """
+        Convert raw ADC reading (0-1023) to lux using linear interpolation
+        of calibration points from config.PHOTORESISTOR_CALIBRATION_POINTS.
+        """
+        cal_points = getattr(config, "PHOTORESISTOR_CALIBRATION_POINTS", {100: 20, 500: 100, 1000: 1000})
+        if not cal_points or len(cal_points) < 1:
+            return 0.0
+
+        # Sort calibration points by ADC value
+        sorted_points = sorted(cal_points.items())
+
+        # Clamp raw_adc to calibration range
+        if raw_adc <= sorted_points[0][0]:
+            return sorted_points[0][1]
+        if raw_adc >= sorted_points[-1][0]:
+            return sorted_points[-1][1]
+
+        # Linear interpolation between two nearest calibration points
+        for i in range(len(sorted_points) - 1):
+            adc1, lux1 = sorted_points[i]
+            adc2, lux2 = sorted_points[i + 1]
+            if adc1 <= raw_adc <= adc2:
+                # Linear interpolation
+                t = (raw_adc - adc1) / (adc2 - adc1) if adc2 != adc1 else 0.0
+                lux = lux1 + t * (lux2 - lux1)
+                return lux
+
+        return 0.0
 
     # ------------------------------------------------------------------
     def keepalive(self) -> None:

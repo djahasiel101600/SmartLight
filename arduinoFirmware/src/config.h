@@ -8,6 +8,7 @@ const int ZC_PIN = 2;
 const int PWM_PIN_CH1 = 9;
 const int PWM_PIN_CH2 = 10;
 const int STATUS_LED = 13;
+const int PHOTORESISTOR_PIN = A2; // Analog pin for photoresistor with 10k divider
 
 // =============================================================================
 // SERIAL CONFIGURATION
