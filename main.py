@@ -413,6 +413,7 @@ def run(headless: bool = config.HEADLESS) -> None:
 def run_test_mode(
     test_dimm: bool = False,
     test_full_brightness: bool = False,
+    test_lux: float | None = None,
     test_seconds: float | None = None,
 ) -> int:
     """Run dimmer-only diagnostics and return process exit code."""
@@ -439,6 +440,15 @@ def run_test_mode(
             else:
                 logger.log_info("Starting full-brightness dimmer test mode.")
             ok = dimmer.set_full_brightness_test(duration_seconds=test_seconds)
+        elif test_lux is not None:
+            if test_seconds is not None and test_seconds > 0:
+                logger.log_info(
+                    f"Starting lux target test mode (target={test_lux:.1f} lux, "
+                    f"hold={test_seconds:.1f}s)."
+                )
+            else:
+                logger.log_info(f"Starting lux target test mode (target={test_lux:.1f} lux).")
+            ok = dimmer.set_target_lux_test(target_lux=test_lux, duration_seconds=test_seconds)
         else:
             logger.log_error("No dimmer test mode selected.")
             return 2
@@ -475,6 +485,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Set dimmer to full brightness once and exit.",
     )
+    test_group.add_argument(
+        "--test-lux",
+        type=float,
+        default=None,
+        metavar="LUX",
+        help=(
+            "Set dimmer to the brightness that corresponds to LUX (uses LUX_BRIGHTNESS_TABLE). "
+            "Pair with --test-seconds to hold and compare photoresistor vs real lux meter."
+        ),
+    )
     parser.add_argument(
         "--test-seconds",
         type=float,
@@ -486,13 +506,19 @@ if __name__ == "__main__":
     if args.test_seconds is not None and args.test_seconds <= 0:
         parser.error("--test-seconds must be greater than 0.")
 
-    if args.test_seconds is not None and not (args.test_dimm or args.test_full_brightness):
-        parser.error("--test-seconds requires --test-dimm or --test-full-brightness.")
+    if args.test_seconds is not None and not (
+        args.test_dimm or args.test_full_brightness or args.test_lux is not None
+    ):
+        parser.error("--test-seconds requires --test-dimm, --test-full-brightness, or --test-lux.")
 
-    if args.test_dimm or args.test_full_brightness:
+    if args.test_lux is not None and args.test_lux <= 0:
+        parser.error("--test-lux must be greater than 0.")
+
+    if args.test_dimm or args.test_full_brightness or args.test_lux is not None:
         exit_code = run_test_mode(
             test_dimm=args.test_dimm,
             test_full_brightness=args.test_full_brightness,
+            test_lux=args.test_lux,
             test_seconds=args.test_seconds,
         )
         sys.exit(exit_code)

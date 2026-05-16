@@ -16,7 +16,7 @@ import time
 
 import config
 from dimmer_controller.controller import DimmerController
-from dimmer_controller.lux_controller import LuxController
+from dimmer_controller.lux_controller import LuxController, _lux_to_brightness
 
 
 class _SerialWorker:
@@ -343,6 +343,74 @@ class DimmerManager:
             return self._controller.ping()
         except Exception:
             return False
+
+    # ------------------------------------------------------------------
+    def set_target_lux_test(
+        self, target_lux: float, duration_seconds: float | None = None
+    ) -> bool:
+        """
+        Convert target_lux → brightness % via LUX_BRIGHTNESS_TABLE, command
+        the dimmer to that level, then hold while polling the photoresistor
+        so the user can compare sensor readings against a real lux meter.
+        """
+        if not self._available or self._controller is None:
+            print("[DimmerTest] Arduino not available for lux test.")
+            return False
+
+        brightness = _lux_to_brightness(target_lux)
+        print(f"[DimmerTest] target_lux={target_lux:.1f} → brightness={brightness}%")
+
+        self._enter_test_mode()
+        behavior = getattr(config, "DIMMER_TEST_BEHAVIOR", "writing")
+        ok = self._send_command_sync(behavior, brightness, "lux-test")
+        if not ok:
+            return False
+
+        if duration_seconds is None or duration_seconds <= 0:
+            return True
+
+        poll_interval = max(0.5, float(getattr(config, "PHOTORESISTOR_POLL_INTERVAL", 1.0)))
+        end_time = time.monotonic() + duration_seconds
+        last_sensor_print = 0.0
+
+        print(
+            f"[DimmerTest] Holding for {duration_seconds:.1f}s "
+            f"| target_lux={target_lux:.1f} | brightness={brightness}% "
+            f"| poll_interval={poll_interval:.1f}s"
+        )
+
+        while time.monotonic() < end_time:
+            now = time.monotonic()
+            remaining = end_time - now
+
+            if self._photoresistor_enabled and (now - last_sensor_print) >= poll_interval:
+                try:
+                    raw_adc, lux = self._read_photoresistor_once()
+                    self._photoresistor_lux = lux
+                    diff = lux - target_lux
+                    sign = "+" if diff >= 0 else ""
+                    raw_text = raw_adc if raw_adc is not None else "n/a"
+                    print(
+                        f"[LuxTest] raw_adc={raw_text} sensor_lux={lux:.1f} "
+                        f"| target={target_lux:.1f} diff={sign}{diff:.1f} "
+                        f"| t_remaining={remaining:.1f}s"
+                    )
+                    last_sensor_print = now
+                except Exception as exc:
+                    print(f"[Photoresistor] ERROR during lux test read: {exc}")
+                    last_sensor_print = now
+
+            try:
+                self._controller.ping()
+            except Exception as exc:
+                print(f"[DimmerTest] hold ping failed: {exc}")
+                self._available = False
+                return False
+
+            sleep_for = min(poll_interval, max(0.05, remaining))
+            time.sleep(sleep_for)
+
+        return True
 
     # ------------------------------------------------------------------
     def set_full_brightness_test(self, duration_seconds: float | None = None) -> bool:
