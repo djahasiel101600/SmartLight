@@ -474,7 +474,7 @@ class DimmerManager:
             if self._worker is not None:
                 self._worker.stop()
                 self._worker = None
-            self._controller.ser.write(b"DISCONNECT\n")
+            self._controller.send_raw_command("DISCONNECT", expected_prefix="STATUS:", retries=1)
             # Small pause so the Arduino can process the command before the
             # serial port is closed (which triggers an Arduino reset anyway).
             time.sleep(0.2)
