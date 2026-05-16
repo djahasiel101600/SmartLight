@@ -19,10 +19,19 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # Camera lock (for stable lux estimation)
 # When enabled, startup applies fixed exposure/gain controls to reduce
 # frame-to-frame brightness drift from automatic camera behavior.
+
+# Tweaking these values changes how the camera sensor collects and processes light per frame, which directly changes your lux estimate behavior.
+# CAMERA_LOCK_ENABLED decides whether the camera runs in fixed mode or adaptive mode. When fixed, the sensor stops “helping” automatically, so measurements become repeatable. When adaptive (auto), the camera may brighten/darken frames on its own, which looks good visually but causes lux drift for the same real scene.
+# CAMERA_LOCK_EXPOSURE_US controls shutter time. Increasing it makes frames brighter (more photons captured), but can add motion blur and can saturate bright scenes. Decreasing it darkens frames, improves motion sharpness, and may increase noise in low light. For lux estimation, this is one of the strongest levers.
+# CAMERA_LOCK_ANALOG_GAIN (or CAMERA_LOCK_ISO on some backends) amplifies sensor signal. Higher gain/ISO makes the image brighter without longer exposure, but also amplifies noise and can make lux estimates less stable in dim scenes. Lower gain gives cleaner data but may underexpose.
+# CAMERA_LOCK_AWB_ENABLED and CAMERA_LOCK_AWB_MODE affect color-channel balancing. AWB can shift channel scaling frame-to-frame as scene color changes, which can slightly move grayscale/luma-based lux estimates. Disabling AWB generally improves trend consistency; forcing AWB mode only helps if you use a valid numeric mode for your camera stack.
+# CAMERA_LOCK_EV adds brightness bias on top of exposure logic (where supported). Positive EV pushes brighter, negative EV darker. In measurement workflows, EV is usually kept at 0.0 to avoid hidden bias.
+# In practice: exposure + gain/ISO set the sensor’s raw brightness response, AWB/EV can add processing-side variation, and locking all of them trades visual adaptability for stable, comparable lux readings.
+
 CAMERA_LOCK_ENABLED: bool = True
-CAMERA_LOCK_EXPOSURE_US: int = 10000    # Exposure time in microseconds
+CAMERA_LOCK_EXPOSURE_US: int = 15000    # Exposure time in microseconds
 CAMERA_LOCK_ANALOG_GAIN: float = 1.0    # Picamera2 AnalogueGain target
-CAMERA_LOCK_ISO: int = 100              # Best-effort fallback for backends supporting ISO
+CAMERA_LOCK_ISO: int = 240              # Best-effort fallback for backends supporting ISO
 CAMERA_LOCK_AWB_ENABLED: bool = False   # False keeps color processing stable for lux trends
 CAMERA_LOCK_AWB_MODE = None             # Picamera2 expects int enum; None means do not force mode
 CAMERA_LOCK_EV: float = 0.0             # Exposure compensation / EV (if supported)
