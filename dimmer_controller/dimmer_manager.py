@@ -452,17 +452,17 @@ class DimmerManager:
             return False
         try:
             response = self._controller.send_command(behavior, brightness)
+            raw_adc = None
+            lux = self._photoresistor_lux
             if self._photoresistor_enabled:
                 raw_adc, lux = self._read_photoresistor_once()
                 self._photoresistor_lux = lux
-                print(
-                    f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | "
-                    f"response={response!r} | photoresistor_raw={raw_adc} lux={lux:.1f}"
-                )
-            else:
-                print(
-                    f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | response={response!r}"
-                )
+
+            raw_text = raw_adc if raw_adc is not None else "n/a"
+            print(
+                f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | "
+                f"response={response!r} | photoresistor_raw={raw_text} lux={lux:.1f}"
+            )
             return True
         except Exception as exc:
             print(f"[DimmerTest] {label} failed: {exc}")

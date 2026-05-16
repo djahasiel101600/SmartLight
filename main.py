@@ -465,8 +465,10 @@ if __name__ == "__main__":
     test_group = parser.add_mutually_exclusive_group()
     test_group.add_argument(
         "--test-dimm",
+        "--test-dim",
+        dest="test_dimm",
         action="store_true",
-        help="Run dimmer ramp test (0->100->0) and exit.",
+        help="Run dimmer ramp test (0->100->0) and exit. (--test-dim is an alias)",
     )
     test_group.add_argument(
         "--test-full-brightness",
