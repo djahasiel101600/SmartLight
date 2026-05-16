@@ -123,10 +123,10 @@ PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.15
 # 3. Update this dict with at least 2 calibration pairs
 # 4. System will use linear interpolation between calibration points
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
-    90:8.5,      # Raw ADC 100 ≈ 20 lux  (estimate – calibrate at dim light)
-    170: 20,
-    177.15: 22,
-    257.71: 48,
+    90:8,      # Raw ADC 100 ≈ 20 lux  (estimate – calibrate at dim light)
+    170: 18,
+    177.15: 20,
+    257.71: 45,
     348.35: 116, # Raw ADC 552 = 516 lux  (measured 2026-05-16, full brightness)
     564: 860,   # Raw ADC 1023 ≈ 1500 lux (estimate – calibrate at brighter source)
 }
