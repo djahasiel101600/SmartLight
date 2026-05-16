@@ -252,6 +252,78 @@ class DimmerManager:
             return False
 
     # ------------------------------------------------------------------
+    def set_full_brightness_test(self) -> bool:
+        """
+        Send a single full-brightness command for CLI test mode.
+        Uses synchronous serial writes for deterministic test completion.
+        """
+        if not self._available or self._controller is None:
+            print("[DimmerTest] Arduino not available for full-brightness test.")
+            return False
+
+        self._enter_test_mode()
+        behavior = getattr(config, "DIMMER_TEST_BEHAVIOR", "writing")
+        return self._send_command_sync(behavior, 100, "full-brightness")
+
+    # ------------------------------------------------------------------
+    def run_dimm_ramp_test(self) -> bool:
+        """
+        Run a deterministic 0->100->0 brightness ramp for CLI test mode.
+        Uses synchronous serial writes with fixed dwell time per step.
+        """
+        if not self._available or self._controller is None:
+            print("[DimmerTest] Arduino not available for ramp test.")
+            return False
+
+        self._enter_test_mode()
+
+        behavior = getattr(config, "DIMMER_TEST_BEHAVIOR", "writing")
+        step = max(1, int(getattr(config, "DIMMER_TEST_STEP", 10)))
+        dwell = max(0.0, float(getattr(config, "DIMMER_TEST_DWELL_SECONDS", 0.4)))
+
+        up = list(range(0, 101, step))
+        if up[-1] != 100:
+            up.append(100)
+        sequence = up + list(reversed(up[:-1]))
+
+        print(
+            f"[DimmerTest] Ramp test started | points={len(sequence)} step={step}% dwell={dwell:.2f}s"
+        )
+        for idx, brightness in enumerate(sequence):
+            if not self._send_command_sync(behavior, brightness, "ramp"):
+                return False
+            if idx < len(sequence) - 1 and dwell > 0.0:
+                time.sleep(dwell)
+
+        print("[DimmerTest] Ramp test completed.")
+        return True
+
+    # ------------------------------------------------------------------
+    def _enter_test_mode(self) -> None:
+        """Stop async worker so test-mode serial writes are fully deterministic."""
+        if self._worker is not None:
+            try:
+                self._worker.stop()
+            except Exception:
+                pass
+            self._worker = None
+
+    # ------------------------------------------------------------------
+    def _send_command_sync(self, behavior: str, brightness: int, label: str) -> bool:
+        if self._controller is None:
+            return False
+        try:
+            response = self._controller.send_command(behavior, brightness)
+            print(
+                f"[DimmerTest] {label}: behavior={behavior!r} brightness={brightness} | response={response!r}"
+            )
+            return True
+        except Exception as exc:
+            print(f"[DimmerTest] {label} failed: {exc}")
+            self._available = False
+            return False
+
+    # ------------------------------------------------------------------
     @property
     def current_brightness(self) -> int:
         """Current brightness value (0–100) as tracked by the lux controller."""

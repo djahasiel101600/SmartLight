@@ -16,6 +16,17 @@ CAMERA_WARMUP_SECONDS: float = 2.0  # Seconds to let the camera warm up after op
 CAMERA_USE_PICAMERA2: bool = True  # True for Pi CSI camera module, False for USB webcam / Windows dev
 HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 
+# Camera lock (for stable lux estimation)
+# When enabled, startup applies fixed exposure/gain controls to reduce
+# frame-to-frame brightness drift from automatic camera behavior.
+CAMERA_LOCK_ENABLED: bool = True
+CAMERA_LOCK_EXPOSURE_US: int = 10000    # Exposure time in microseconds
+CAMERA_LOCK_ANALOG_GAIN: float = 1.0    # Picamera2 AnalogueGain target
+CAMERA_LOCK_ISO: int = 100              # Best-effort fallback for backends supporting ISO
+CAMERA_LOCK_AWB_ENABLED: bool = False   # False keeps color processing stable for lux trends
+CAMERA_LOCK_AWB_MODE: str = "auto"      # Best-effort; backend support varies
+CAMERA_LOCK_EV: float = 0.0             # Exposure compensation / EV (if supported)
+
 # ---------------------------------------------------------------------------
 # Motion Detection
 # ---------------------------------------------------------------------------
@@ -71,6 +82,11 @@ DIMMER_ENABLED: bool = True          # Set False to disable without changing cod
 DIMMER_PORT: str = "/dev/ttyACM0"   # Already working per your output
 DIMMER_BAUD: int = 9600
 DIMMER_COMMIT_DELAY: float = 1.5    # Seconds a new activity must persist before dimmer changes
+
+# Test-mode defaults for CLI flags (--test-dimm, --test-full-brightness)
+DIMMER_TEST_BEHAVIOR: str = "writing"
+DIMMER_TEST_STEP: int = 10
+DIMMER_TEST_DWELL_SECONDS: float = 0.4
 
 # ---------------------------------------------------------------------------
 # IES-Based Lux Control (replaces fixed DIMMER_BRIGHTNESS)

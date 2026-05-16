@@ -16,6 +16,10 @@ Usage:
     Headless mode (no display window):
         python main.py --headless
 
+    Test mode (dimmer only):
+        python main.py --test-dimm
+        python main.py --test-full-brightness
+
 Press  Q  in the display window, or Ctrl+C in the terminal, to exit.
 """
 
@@ -401,6 +405,38 @@ def run(headless: bool = config.HEADLESS) -> None:
         logger.log_shutdown()
 
 
+def run_test_mode(test_dimm: bool = False, test_full_brightness: bool = False) -> int:
+    """Run dimmer-only diagnostics and return process exit code."""
+    logger = StructuredLogger()
+    logger.log_startup()
+    dimmer = DimmerManager()
+
+    try:
+        if not dimmer.is_available:
+            logger.log_error("Dimmer test requested but Arduino is not available.")
+            return 2
+
+        if test_dimm:
+            logger.log_info("Starting dimmer ramp test mode.")
+            ok = dimmer.run_dimm_ramp_test()
+        elif test_full_brightness:
+            logger.log_info("Starting full-brightness dimmer test mode.")
+            ok = dimmer.set_full_brightness_test()
+        else:
+            logger.log_error("No dimmer test mode selected.")
+            return 2
+
+        if ok:
+            logger.log_info("Dimmer test completed successfully.")
+            return 0
+
+        logger.log_error("Dimmer test failed.")
+        return 2
+    finally:
+        dimmer.disconnect()
+        logger.log_shutdown()
+
+
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Activity Recognition System")
@@ -409,5 +445,24 @@ if __name__ == "__main__":
         action="store_true",
         help="Run without a display window (for Raspberry Pi SSH sessions).",
     )
+    test_group = parser.add_mutually_exclusive_group()
+    test_group.add_argument(
+        "--test-dimm",
+        action="store_true",
+        help="Run dimmer ramp test (0->100->0) and exit.",
+    )
+    test_group.add_argument(
+        "--test-full-brightness",
+        action="store_true",
+        help="Set dimmer to full brightness once and exit.",
+    )
     args = parser.parse_args()
+
+    if args.test_dimm or args.test_full_brightness:
+        exit_code = run_test_mode(
+            test_dimm=args.test_dimm,
+            test_full_brightness=args.test_full_brightness,
+        )
+        sys.exit(exit_code)
+
     run(headless=args.headless)
