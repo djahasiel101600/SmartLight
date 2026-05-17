@@ -138,6 +138,7 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     442:100,
     506:156,
     561: 368,
+    570: 555,
     581:609,
     589:667,
     595: 733,
