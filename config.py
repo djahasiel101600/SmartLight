@@ -175,7 +175,7 @@ LUX_CALIBRATION_SCALE: float = 1
 # Calibration offset: adds a fixed lux bias after scaling.
 # This is useful when the room has steady ambient light that causes the
 # camera estimate to have a consistent baseline error.
-LUX_CALIBRATION_OFFSET: float = 9.5
+LUX_CALIBRATION_OFFSET: float = 0
 
 # 16 lx & 17.4 meter
 
