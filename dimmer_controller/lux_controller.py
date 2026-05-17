@@ -126,20 +126,18 @@ class LuxController:
         )
         lo, hi = target_range
 
-        # b_max caps how far up we can step (don't overshoot above the table's
-        # maximum brightness for this lux band).
-        # b_min is intentionally NOT used as a floor when stepping down: the
-        # LUX_BRIGHTNESS_TABLE is an estimate and may be stale relative to the
-        # actual hardware.  Clamping at b_min would prevent the controller from
-        # reaching the brightness level that physically produces the target lux,
-        # causing it to get stuck above the upper bound of the target range.
-        b_max = _lux_to_brightness(hi)
+        # No table-based clamping on either direction.
+        # LUX_BRIGHTNESS_TABLE is an estimate and is only used for set_initial()
+        # seeding.  Clamping step-up at b_max or step-down at b_min prevents the
+        # controller from reaching the brightness that actually produces the target
+        # lux on this specific hardware.  The photoresistor feedback is the only
+        # authority — let the controller step freely in both directions.
 
         if calibrated < lo:
-            # Scene is too dark — increase brightness, clamped to table max
-            new_brightness = min(b_max, self._brightness + self._step)
+            # Scene is too dark — step up, hard ceiling at 100%
+            new_brightness = min(100, self._brightness + self._step)
         elif calibrated > hi:
-            # Scene is too bright — step down freely (floor at 1%, not b_min)
+            # Scene is too bright — step down, hard floor at 1%
             new_brightness = max(1, self._brightness - self._step)
         else:
             # Within target band — hold
