@@ -144,7 +144,7 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     604: 930,
     611: 1077,
     613: 1154,
-    617: 1185, #1185: before changing currently readings were off agains meter
+    617: 1180, #1185: before changing currently readings were off agains meter
     621: 1394
 }
 
