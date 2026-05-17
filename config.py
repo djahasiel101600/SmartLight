@@ -162,7 +162,7 @@ ACTIVITY_LUX_RANGE: dict = {
     "Idle":            (50, 100),   # IES: dimming lighting for comfort
 }
 
-LUX_STEP_SIZE: int = 3              # Brightness % points to nudge per control tick
+LUX_STEP_SIZE: int = 2              # Brightness % points to nudge per control tick
 LUX_CONTROL_INTERVAL: float = 2.0  # Seconds between control ticks.
 # Must be >= PHOTORESISTOR_POLL_INTERVAL (1.0s) + bulb settle time (~1s).
 # If LUX_CONTROL_INTERVAL < PHOTORESISTOR_POLL_INTERVAL the controller fires
