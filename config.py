@@ -164,7 +164,10 @@ ACTIVITY_LUX_RANGE: dict = {
 }
 
 LUX_STEP_SIZE: int = 3              # Brightness % points to nudge per control tick
-LUX_CONTROL_INTERVAL: float = 0.5  # Seconds between control ticks
+LUX_CONTROL_INTERVAL: float = 2.0  # Seconds between control ticks.
+# Must be >= PHOTORESISTOR_POLL_INTERVAL (1.0s) + bulb settle time (~1s).
+# If LUX_CONTROL_INTERVAL < PHOTORESISTOR_POLL_INTERVAL the controller fires
+# multiple steps on the same stale lux reading, causing overshoot.
 
 # Lux-to-brightness lookup table derived from reference hardware measurements.
 # Each row: (lux_min, lux_max, brightness_min%, brightness_max%)
