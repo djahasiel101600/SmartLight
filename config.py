@@ -128,11 +128,7 @@ PHOTORESISTOR_SETTLE_DELAY: float = 2
 # 4. System will use linear interpolation between calibration points
 # format: [raw adc]: [lux from meter]
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
-    108: 9.2,
-    204: 23.3,
-    287: 47.2,
-    407: 127,
-    486: 324
+    408:160,
 }
 
 # ---------------------------------------------------------------------------
