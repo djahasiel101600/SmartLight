@@ -13,7 +13,11 @@ This guide explains how to calibrate the photoresistor using your handheld lux m
 - Photoresistor (estimated 5kΩ-10kΩ resistance range)
 - 10kΩ resistor (divider)
 - Arduino A2 analog input
-- Voltage divider circuit: VCC → Photoresistor → A2 → 10kΩ → GND
+- Voltage divider circuit: **3.3 V** → Photoresistor → A2 → 10kΩ → GND
+- AREF pin connected to the same **3.3 V** rail
+
+**ADC reference voltage:** 3.3 V (firmware uses `analogReference(EXTERNAL)`).
+ADC reading 0 = 0 V, ADC reading 1023 = 3.3 V — full 10-bit resolution.
 
 **Expected ADC range:** 0-1023 (10-bit ADC)
 

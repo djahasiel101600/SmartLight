@@ -93,6 +93,12 @@ void setup()
     Serial.begin(SERIAL_BAUD);
     Serial.setTimeout(SERIAL_TIMEOUT_MS);
 
+    // Photoresistor is powered from the 3.3 V rail.
+    // Use the AREF pin as the ADC reference so the full 0–1023 range maps to
+    // 0–3.3 V instead of 0–5 V.  Connect the Arduino AREF pin to the same
+    // 3.3 V supply that powers the photoresistor before calling analogRead().
+    analogReference(EXTERNAL);
+
     pinMode(STATUS_LED, OUTPUT);
 
     // begin(NORMAL_MODE, ON) matches the official RBDDimmer example exactly.

@@ -8,7 +8,8 @@ const int ZC_PIN = 2;
 const int PWM_PIN_CH1 = 9;
 const int PWM_PIN_CH2 = 10;
 const int STATUS_LED = 13;
-const int PHOTORESISTOR_PIN = A2; // Analog pin for photoresistor with 10k divider
+const int PHOTORESISTOR_PIN = A2; // Analog pin for photoresistor (3.3 V supply, 10 kΩ divider)
+// NOTE: analogReference(EXTERNAL) is set in setup() — connect AREF to the 3.3 V rail.
 
 // =============================================================================
 // SERIAL CONFIGURATION

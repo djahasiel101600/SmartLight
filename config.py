@@ -102,6 +102,9 @@ DIMMER_TEST_DWELL_SECONDS: float = 0.4
 # ---------------------------------------------------------------------------
 # When enabled, use hardware photoresistor readings instead of camera-based lux.
 # Photoresistor is connected to Arduino A2 with 10k ohm resistor divider.
+# Supply voltage: 3.3 V (NOT 5 V).  Circuit: 3.3V → LDR → A2 → 10kΩ → GND.
+# The Arduino AREF pin must be tied to the same 3.3 V rail, and the firmware
+# calls analogReference(EXTERNAL) so the ADC full-scale (1023) = 3.3 V.
 # The Arduino responds to "PHOTOLUX?" command with raw ADC reading (0-1023).
 PHOTORESISTOR_ENABLED: bool = True
 PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
