@@ -130,6 +130,7 @@ PHOTORESISTOR_SETTLE_DELAY: float = 2
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     215:110,
     408:160,
+    591:1026
 }
 
 # ---------------------------------------------------------------------------
