@@ -126,16 +126,21 @@ class LuxController:
         )
         lo, hi = target_range
 
-        # Derive the valid brightness range for this lux band from the table.
-        b_min = _lux_to_brightness(lo)
+        # b_max caps how far up we can step (don't overshoot above the table's
+        # maximum brightness for this lux band).
+        # b_min is intentionally NOT used as a floor when stepping down: the
+        # LUX_BRIGHTNESS_TABLE is an estimate and may be stale relative to the
+        # actual hardware.  Clamping at b_min would prevent the controller from
+        # reaching the brightness level that physically produces the target lux,
+        # causing it to get stuck above the upper bound of the target range.
         b_max = _lux_to_brightness(hi)
 
         if calibrated < lo:
             # Scene is too dark — increase brightness, clamped to table max
             new_brightness = min(b_max, self._brightness + self._step)
         elif calibrated > hi:
-            # Scene is too bright — decrease brightness, clamped to table min
-            new_brightness = max(b_min, self._brightness - self._step)
+            # Scene is too bright — step down freely (floor at 1%, not b_min)
+            new_brightness = max(1, self._brightness - self._step)
         else:
             # Within target band — hold
             return self._brightness, False
