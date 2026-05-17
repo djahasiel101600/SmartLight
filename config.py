@@ -107,8 +107,8 @@ DIMMER_TEST_DWELL_SECONDS: float = 0.4
 # calls analogReference(EXTERNAL) so the ADC full-scale (1023) = 3.3 V.
 # The Arduino responds to "PHOTOLUX?" command with raw ADC reading (0-1023).
 PHOTORESISTOR_ENABLED: bool = True
-PHOTORESISTOR_POLL_INTERVAL: float = 0.5  # Seconds between ADC polls
-PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.15
+PHOTORESISTOR_POLL_INTERVAL: float = 1  # Seconds between ADC polls
+PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.01
 # EMA smoothing factor for lux readings (0.01 = very smooth/slow, 1.0 = no smoothing/raw).
 # 0.15 averages ~6 recent samples — stable for slow-changing ambient light.
 PHOTORESISTOR_SETTLE_DELAY: float = 2
