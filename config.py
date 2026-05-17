@@ -144,7 +144,8 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     604: 930,
     611: 1077,
     613: 1154,
-    617: 1228
+    617: 1228,
+    621: 1494
 }
 
 # ---------------------------------------------------------------------------
@@ -162,7 +163,7 @@ ACTIVITY_LUX_RANGE: dict = {
     "Idle":            (50, 100),   # IES: dimming lighting for comfort
 }
 
-LUX_STEP_SIZE: int = 2              # Brightness % points to nudge per control tick
+LUX_STEP_SIZE: int = 2              # Brightness % points to nudge per control tick: 3 default
 LUX_CONTROL_INTERVAL: float = 2.0  # Seconds between control ticks.
 # Must be >= PHOTORESISTOR_POLL_INTERVAL (1.0s) + bulb settle time (~1s).
 # If LUX_CONTROL_INTERVAL < PHOTORESISTOR_POLL_INTERVAL the controller fires
