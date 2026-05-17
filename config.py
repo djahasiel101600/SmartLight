@@ -28,7 +28,7 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # CAMERA_LOCK_EV adds brightness bias on top of exposure logic (where supported). Positive EV pushes brighter, negative EV darker. In measurement workflows, EV is usually kept at 0.0 to avoid hidden bias.
 # In practice: exposure + gain/ISO set the sensor’s raw brightness response, AWB/EV can add processing-side variation, and locking all of them trades visual adaptability for stable, comparable lux readings.
 
-CAMERA_LOCK_ENABLED: bool = True
+CAMERA_LOCK_ENABLED: bool = False
 CAMERA_LOCK_EXPOSURE_US: int = 33000    # Exposure time in microseconds (increased for daylight)
 CAMERA_LOCK_ANALOG_GAIN: float = 3.0    # Picamera2 AnalogueGain target (increased for brightness)
 CAMERA_LOCK_ISO: int = 300             # Best-effort fallback for backends supporting ISO
@@ -138,7 +138,6 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     442:100,
     506:156,
     561: 368,
-    570: 555,
     581:609,
     589:667,
     595: 733,
