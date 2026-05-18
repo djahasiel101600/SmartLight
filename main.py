@@ -164,6 +164,27 @@ class _AsyncAPIWorker:
             return result, latency
 
 
+def _draw_lux_roi(frame) -> None:
+    """Draw the Lambertian reference ROI box on the live display frame."""
+    if not getattr(config, "LUX_LAMBERTIAN_ROI_ENABLED", False):
+        return
+    rx, ry, rw, rh = getattr(config, "LUX_LAMBERTIAN_ROI", (0.78, 0.04, 0.18, 0.18))
+    h, w = frame.shape[:2]
+    x1 = max(0, int(rx * w))
+    y1 = max(0, int(ry * h))
+    x2 = min(w, int((rx + rw) * w))
+    y2 = min(h, int((ry + rh) * h))
+    color = (0, 230, 160)
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+    clen = 8
+    for cx, cy, dx, dy in [(x1, y1, 1, 1), (x2, y1, -1, 1),
+                            (x1, y2, 1, -1), (x2, y2, -1, -1)]:
+        cv2.line(frame, (cx, cy), (cx + dx * clen, cy), color, 2)
+        cv2.line(frame, (cx, cy), (cx, cy + dy * clen), color, 2)
+    label_y = y1 - 4 if y1 > 14 else y2 + 12
+    cv2.putText(frame, "Lux ref", (x1, label_y), _FONT, 0.40, color, 1, cv2.LINE_AA)
+
+
 def _draw_overlay(
     frame,
     activity: str,
@@ -395,6 +416,7 @@ def run(headless: bool = config.HEADLESS) -> None:
                         lux=_lux,
                         dimmer_pct=_dim_pct,
                     )
+                    _draw_lux_roi(frame)
                 except Exception:
                     pass  # overlay errors must not drop the camera feed
                 cv2.imshow("SmartLight Activity Recognition", frame)
@@ -450,6 +472,38 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
 
     # Y_mean threshold below which frames are considered underexposed.
     _DARK_THRESHOLD = 20  # out of 255
+
+    # Pre-compute ROI pixel coordinates once (re-used every frame).
+    _roi_enabled = getattr(config, "LUX_LAMBERTIAN_ROI_ENABLED", False)
+    _roi_box: tuple | None = None  # (x1, y1, x2, y2) in pixels
+    if _roi_enabled:
+        _rx, _ry, _rw, _rh = getattr(config, "LUX_LAMBERTIAN_ROI", (0.78, 0.04, 0.18, 0.18))
+
+    def _get_roi_pixels(frame_w: int, frame_h: int) -> tuple:
+        """Return ROI as (x1, y1, x2, y2) pixel coords for this frame size."""
+        x1 = int(_rx * frame_w)
+        y1 = int(_ry * frame_h)
+        x2 = int((_rx + _rw) * frame_w)
+        y2 = int((_ry + _rh) * frame_h)
+        return max(0, x1), max(0, y1), min(frame_w, x2), min(frame_h, y2)
+
+    def _draw_roi_box(display: np.ndarray, frozen: bool = False) -> None:
+        """Draw the reference ROI box with placement instructions."""
+        if not _roi_enabled:
+            return
+        fh, fw = display.shape[:2]
+        x1, y1, x2, y2 = _get_roi_pixels(fw, fh)
+        color = (0, 255, 180) if not frozen else (0, 200, 140)
+        cv2.rectangle(display, (x1, y1), (x2, y2), color, 2)
+        # Corner accents
+        clen = 10
+        for cx, cy, dx, dy in [(x1, y1, 1, 1), (x2, y1, -1, 1),
+                                (x1, y2, 1, -1), (x2, y2, -1, -1)]:
+            cv2.line(display, (cx, cy), (cx + dx * clen, cy), color, 3)
+            cv2.line(display, (cx, cy), (cx, cy + dy * clen), color, 3)
+        label = "Paper here" if not frozen else "Paper here (keep it!)"
+        label_y = y1 - 6 if y1 > 20 else y2 + 16
+        cv2.putText(display, label, (x1, label_y), _FONT, 0.46, color, 1, cv2.LINE_AA)
 
     def _make_display_frame(src: np.ndarray) -> tuple:
         """
@@ -543,6 +597,7 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
                         (10, 118), _FONT, 0.48, (0, 80, 255), 1, cv2.LINE_AA,
                     )
 
+                _draw_roi_box(display_frame)
                 cv2.imshow(win_name, display_frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     print("[Calibrate] Aborted by user.")
@@ -555,6 +610,7 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
         if not headless and last_frame is not None:
             final_preview, avg_y, boost_label = _make_display_frame(last_frame)
             raw_mean_display = sum(raw_values) / len(raw_values)
+            _draw_roi_box(final_preview, frozen=True)
             cv2.putText(
                 final_preview,
                 "Sampling complete!",

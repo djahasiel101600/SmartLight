@@ -59,7 +59,7 @@ class LambertianLuxEstimator:
 
     def __init__(self) -> None:
         self._rho: float = float(
-            getattr(config, "LUX_LAMBERTIAN_REFLECTANCE", 0.50)
+            getattr(config, "LUX_LAMBERTIAN_REFLECTANCE", 0.85)
         )
         self._gamma: float = float(
             getattr(config, "LUX_LAMBERTIAN_GAMMA", 2.2)
@@ -73,6 +73,12 @@ class LambertianLuxEstimator:
         self._exposure_s: float = max(exposure_us, 1) / 1_000_000.0
         self._gain: float = float(
             getattr(config, "CAMERA_LOCK_ANALOG_GAIN", 1.0)
+        )
+        self._roi_enabled: bool = bool(
+            getattr(config, "LUX_LAMBERTIAN_ROI_ENABLED", False)
+        )
+        self._roi: tuple = tuple(
+            getattr(config, "LUX_LAMBERTIAN_ROI", (0.78, 0.04, 0.18, 0.18))
         )
 
         # Pre-compute the constant part of the formula so estimate() is fast.
@@ -89,6 +95,29 @@ class LambertianLuxEstimator:
                 "Lambertian estimate unreliable. Set CAMERA_LOCK_ENABLED = True "
                 "in config.py for accurate readings."
             )
+        if self._roi_enabled:
+            x, y, w, h = self._roi
+            print(
+                f"[LambertianLux] ROI enabled — measuring from "
+                f"x={x:.0%} y={y:.0%} w={w:.0%} h={h:.0%} of frame. "
+                f"Place white paper inside the on-screen box."
+            )
+
+    # ------------------------------------------------------------------
+    def _crop_to_roi(self, frame: np.ndarray) -> np.ndarray:
+        """Return the ROI sub-image if ROI is enabled, else the full frame."""
+        if not self._roi_enabled:
+            return frame
+        fh, fw = frame.shape[:2]
+        x1 = int(self._roi[0] * fw)
+        y1 = int(self._roi[1] * fh)
+        x2 = int((self._roi[0] + self._roi[2]) * fw)
+        y2 = int((self._roi[1] + self._roi[3]) * fh)
+        x1, x2 = max(0, x1), min(fw, x2)
+        y1, y2 = max(0, y1), min(fh, y2)
+        if x2 <= x1 or y2 <= y1:
+            return frame
+        return frame[y1:y2, x1:x2]
 
     # ------------------------------------------------------------------
     def estimate(self, frame: np.ndarray) -> float:
@@ -103,11 +132,12 @@ class LambertianLuxEstimator:
         4. Apply the Lambertian formula: E = scale * Y_linear.
         5. Clamp to a physical floor of 0.1 lux.
         """
-        # --- Step 1 & 2: Rec.709 luminance, averaged over the whole frame ---
+        src = self._crop_to_roi(frame)
+        # --- Step 1 & 2: Rec.709 luminance, averaged over the ROI / full frame ---
         # Split channels and apply coefficients in float32 to avoid overflow.
-        b = frame[:, :, 0].astype(np.float32)
-        g_ch = frame[:, :, 1].astype(np.float32)
-        r = frame[:, :, 2].astype(np.float32)
+        b = src[:, :, 0].astype(np.float32)
+        g_ch = src[:, :, 1].astype(np.float32)
+        r = src[:, :, 2].astype(np.float32)
         Y_mean: float = float(
             self._REC709_B * b.mean()
             + self._REC709_G * g_ch.mean()
@@ -138,9 +168,10 @@ class LambertianLuxEstimator:
             denom = 1e-9
         raw_scale = math.pi / denom  # K_cal = 1.0
 
-        b = frame[:, :, 0].astype(np.float32)
-        g_ch = frame[:, :, 1].astype(np.float32)
-        r = frame[:, :, 2].astype(np.float32)
+        src = self._crop_to_roi(frame)
+        b = src[:, :, 0].astype(np.float32)
+        g_ch = src[:, :, 1].astype(np.float32)
+        r = src[:, :, 2].astype(np.float32)
         Y_mean = float(
             self._REC709_B * b.mean()
             + self._REC709_G * g_ch.mean()

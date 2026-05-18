@@ -172,10 +172,11 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
 #   3. Copy the printed K_cal value into LUX_LAMBERTIAN_K_CAL below.
 # ---------------------------------------------------------------------------
 
-# Surface reflectance ρ — fraction of incident light reflected by the scene.
-# 0.50 is a reasonable average for indoor rooms with mixed surfaces/furniture.
-# Use 0.18 if working against an 18% gray reference card.
-LUX_LAMBERTIAN_REFLECTANCE: float = 0.50
+# Surface reflectance ρ — fraction of incident light reflected by the reference surface.
+# 0.85 matches a standard white paper / matte white surface.
+# 0.50 is a reasonable average for a mixed indoor room scene (no reference patch).
+# 0.18 matches an 18% gray reference card.
+LUX_LAMBERTIAN_REFLECTANCE: float = 0.85
 
 # sRGB / ISP gamma exponent used to decode pixel values to linear light.
 # Standard cameras apply gamma ≈ 2.2 before writing JPEG/BGR frames.
@@ -184,6 +185,20 @@ LUX_LAMBERTIAN_GAMMA: float = 2.2
 # Camera calibration constant.  Default 1.0 gives an uncalibrated relative
 # estimate.  Run --calibrate-lux once and replace this with the printed value.
 LUX_LAMBERTIAN_K_CAL: float = 1.0
+
+# ---------------------------------------------------------------------------
+# Lambertian Reference ROI (white paper patch)
+# ---------------------------------------------------------------------------
+# When enabled, lux is estimated from a small fixed region of the frame instead
+# of the whole image.  Place a white paper/card inside the on-screen box during
+# --calibrate-lux and leave it there permanently — it becomes the reference patch
+# the system checks on every frame.
+#
+# ROI is specified as fractions of the frame: (x, y, width, height).
+# Default: a 15 % × 15 % box in the top-right corner, out of the way of the
+# person detection area.  Adjust to wherever you mount the white paper.
+LUX_LAMBERTIAN_ROI_ENABLED: bool = True
+LUX_LAMBERTIAN_ROI: tuple = (0.78, 0.04, 0.18, 0.18)  # (x, y, w, h) as frame fractions
 
 # ---------------------------------------------------------------------------
 # IES-Based Lux Control (replaces fixed DIMMER_BRIGHTNESS)
