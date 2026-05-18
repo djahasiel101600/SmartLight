@@ -44,6 +44,7 @@ from camera.capture import CameraCapture
 from decision_engine.engine import DecisionEngine, Decision
 from applog.logger import StructuredLogger
 from dimmer_controller.dimmer_manager import DimmerManager
+from dimmer_controller.lux_controller import _lux_to_brightness
 from preprocessing.motion_detector import MotionDetector
 from preprocessing.roi_extractor import ROIExtractor
 from similarity.comparator import SimilarityComparator
@@ -379,7 +380,7 @@ def run(headless: bool = config.HEADLESS) -> None:
 
             # 8. Display
             if not headless:
-                _dim_pct = dimmer.current_brightness
+                _dim_pct = _lux_to_brightness(_lux)
                 try:
                     _draw_overlay(
                         frame,
