@@ -30,6 +30,7 @@ import threading
 import time
 
 import cv2
+import numpy as np
 
 # --- Path fix so sub-packages can resolve `config` regardless of cwd ---
 import os
