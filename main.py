@@ -415,14 +415,17 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
     """
     Interactive Lambertian calibration wizard.
 
-    1. Opens the camera (same settings as the live run).
-    2. Discards warmup frames.
-    3. Captures *num_samples* frames and averages the raw estimate (K_cal = 1.0).
-    4. Prompts the user for their lux meter reading.
-    5. Computes and prints the K_cal value to set in config.py.
+    1. Opens the camera and shows a live preview window.
+    2. Captures *num_samples* frames while displaying the running raw estimate.
+    3. Freezes the last frame with an overlay prompt, then reads the meter value
+       from the terminal — the window stays visible so you can keep the lux meter
+       and camera pointing at the same scene while typing.
+    4. Computes and prints the K_cal value to set in config.py.
 
     Returns a process exit code (0 = success, 1 = error).
     """
+    headless: bool = config.HEADLESS
+
     print("\n[Calibrate] ===== Lambertian Lux Calibration Wizard =====")
     print(f"[Calibrate] CAMERA_LOCK_ENABLED = {getattr(config, 'CAMERA_LOCK_ENABLED', False)}")
     if not getattr(config, "CAMERA_LOCK_ENABLED", False):
@@ -441,10 +444,14 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
         return 1
 
     print(f"[Calibrate] Camera open. Capturing {num_samples} sample frames …")
+    if not headless:
+        print("[Calibrate] A preview window will open. Keep it visible while taking your meter reading.")
 
     raw_values: list[float] = []
+    last_frame = None
+    attempts = 0
+
     try:
-        attempts = 0
         while len(raw_values) < num_samples:
             frame = camera.read_frame()
             attempts += 1
@@ -454,15 +461,68 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
                     return 1
                 time.sleep(0.05)
                 continue
-            raw_values.append(estimator.estimate_raw(frame))
+
+            raw_val = estimator.estimate_raw(frame)
+            raw_values.append(raw_val)
+            last_frame = frame.copy()
+
+            # Show live preview with running estimate overlaid
+            if not headless:
+                preview = frame.copy()
+                collected = len(raw_values)
+                running_mean = sum(raw_values) / collected
+                cv2.putText(
+                    preview,
+                    f"Calibrating: {collected}/{num_samples} frames",
+                    (10, 30), _FONT_BOLD, 0.65, (0, 220, 255), 2, cv2.LINE_AA,
+                )
+                cv2.putText(
+                    preview,
+                    f"Raw estimate (K_cal=1.0): {running_mean:.2f} lux",
+                    (10, 62), _FONT, 0.58, (200, 200, 200), 1, cv2.LINE_AA,
+                )
+                cv2.imshow("SmartLight — Lux Calibration", preview)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    print("[Calibrate] Aborted by user.")
+                    return 1
+
             time.sleep(0.05)  # ~20 fps sampling
+
+        # Sampling done — freeze the last frame with a prompt overlay so the
+        # user can still see the scene while typing in the terminal.
+        if not headless and last_frame is not None:
+            final_preview = last_frame.copy()
+            raw_mean_display = sum(raw_values) / len(raw_values)
+            cv2.putText(
+                final_preview,
+                "Sampling complete!",
+                (10, 30), _FONT_BOLD, 0.65, (0, 255, 100), 2, cv2.LINE_AA,
+            )
+            cv2.putText(
+                final_preview,
+                f"Raw estimate (K_cal=1.0): {raw_mean_display:.2f} lux",
+                (10, 62), _FONT, 0.58, (200, 200, 200), 1, cv2.LINE_AA,
+            )
+            cv2.putText(
+                final_preview,
+                "Point lux meter at this scene,",
+                (10, 96), _FONT, 0.55, (50, 220, 255), 1, cv2.LINE_AA,
+            )
+            cv2.putText(
+                final_preview,
+                "then type the reading in the terminal.",
+                (10, 122), _FONT, 0.55, (50, 220, 255), 1, cv2.LINE_AA,
+            )
+            cv2.imshow("SmartLight — Lux Calibration", final_preview)
+            cv2.waitKey(1)  # pump event loop once so the window repaints
+
     finally:
         camera.stop()
 
     raw_mean = sum(raw_values) / len(raw_values)
     print(f"[Calibrate] Raw estimate (K_cal=1.0): {raw_mean:.4f} lux")
     print("[Calibrate] -----------------------------------------------")
-    print("[Calibrate] Point your lux meter at the scene and note the reading.")
+    print("[Calibrate] Keep the camera and lux meter aimed at the same scene.")
 
     try:
         meter_str = input("[Calibrate] Enter lux meter reading: ").strip()
@@ -470,6 +530,9 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
     except (ValueError, EOFError):
         print("[Calibrate] ERROR — Invalid input. Aborted.")
         return 1
+    finally:
+        if not headless:
+            cv2.destroyWindow("SmartLight — Lux Calibration")
 
     if meter_lux <= 0:
         print("[Calibrate] ERROR — Lux reading must be greater than 0.")
