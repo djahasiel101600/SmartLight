@@ -129,23 +129,28 @@ PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.15
 # 3. Update this dict with at least 2 calibration pairs
 # 4. System will use linear interpolation between calibration points
 # format: [raw adc]: [lux from meter]
+# PHOTORESISTOR_CALIBRATION_POINTS: dict = {
+#     115:19,
+#     214:24,
+#     287:34,
+#     392:61,
+#     442:100,
+#     506:156,
+#     561: 368,
+#     581:609,
+#     589:667,
+#     595: 733,
+#     598: 855,
+#     604: 930,
+#     611: 1077,
+#     613: 1154,
+#     617: 1296, #1185: before changing currently readings were off agains meter
+#     621: 1394
+# }
+
 PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     115:19,
-    214:24,
-    287:34,
-    392:61,
-    442:100,
-    506:156,
-    561: 368,
-    581:609,
-    589:667,
-    595: 733,
-    598: 855,
-    604: 930,
-    611: 1077,
-    613: 1154,
-    617: 1296, #1185: before changing currently readings were off agains meter
-    621: 1394
+    618:1018
 }
 
 # ---------------------------------------------------------------------------
