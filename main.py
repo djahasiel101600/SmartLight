@@ -447,15 +447,41 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
     if not headless:
         print("[Calibrate] A preview window will open. Keep it visible while taking your meter reading.")
 
-    # Threshold below which we consider the frame too dark to be useful.
-    # Y_mean is on a 0–255 scale; <8 means essentially black.
-    _DARK_THRESHOLD = 8
+    # Y_mean threshold below which frames are considered underexposed.
+    _DARK_THRESHOLD = 20  # out of 255
+
+    def _make_display_frame(src: np.ndarray) -> tuple:
+        """
+        Return (display_bgr, y_mean, boost_label) where display_bgr is always
+        visible regardless of how underexposed the sensor is.
+
+        Strategy: stretch the brightest pixel to 255 so any scene content
+        becomes visible (histogram max-normalisation). If the frame is truly
+        all-zero we fall back to a plain copy.
+        """
+        px_max = int(src.max())
+        if px_max > 0:
+            scale = 255.0 / px_max
+            boosted = cv2.convertScaleAbs(src, alpha=scale, beta=0)
+            label = f"Display {scale:.0f}x (sensor underexposed)" if scale > 1.5 else ""
+        else:
+            boosted = src.copy()
+            label = "All-black frame — check camera"
+        gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+        y_mean = float(gray.mean())
+        return boosted, y_mean, label
 
     raw_values: list[float] = []
-    y_means: list[float] = []
     last_frame = None
     attempts = 0
     too_dark_warned = False
+
+    # Create window at a fixed size so it never appears tiny regardless of
+    # the frame content.
+    win_name = "SmartLight — Lux Calibration"
+    if not headless:
+        cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(win_name, config.FRAME_WIDTH, config.FRAME_HEIGHT)
 
     try:
         while len(raw_values) < num_samples:
@@ -468,42 +494,30 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
                 time.sleep(0.05)
                 continue
 
-            import cv2 as _cv2_local
-            gray = _cv2_local.cvtColor(frame, _cv2_local.COLOR_BGR2GRAY)
-            y_mean = float(gray.mean())
-            y_means.append(y_mean)
-
             raw_val = estimator.estimate_raw(frame)
             raw_values.append(raw_val)
             last_frame = frame.copy()
 
-            # Warn once in terminal if frames are underexposed
+            display_frame, y_mean, boost_label = _make_display_frame(frame)
+
+            # Warn once in terminal when frames are underexposed
             if not too_dark_warned and y_mean < _DARK_THRESHOLD:
                 too_dark_warned = True
                 print(
-                    f"\n[Calibrate] WARNING — Frames are very dark (Y_mean={y_mean:.1f}/255). "
-                    f"Current CAMERA_LOCK_EXPOSURE_US={getattr(config, 'CAMERA_LOCK_EXPOSURE_US', '?')} µs "
-                    f"is likely too short for indoor conditions.\n"
-                    f"[Calibrate] Increase CAMERA_LOCK_EXPOSURE_US in config.py "
-                    f"(try 10000–30000 for indoors) and re-run --calibrate-lux.\n"
-                    f"[Calibrate] Continuing anyway — K_cal result will be unreliable.\n"
+                    f"\n[Calibrate] WARNING — Frames are underexposed "
+                    f"(Y_mean={y_mean:.1f}/255, current exposure="
+                    f"{getattr(config, 'CAMERA_LOCK_EXPOSURE_US', '?')} µs).\n"
+                    f"[Calibrate] The preview is auto-brightened so you can still see "
+                    f"the scene, but for best accuracy increase "
+                    f"CAMERA_LOCK_EXPOSURE_US in config.py (try 20000 for indoors) "
+                    f"and re-run --calibrate-lux.\n"
                 )
 
             if not headless:
-                # Auto-brighten the preview so the user can see the scene even
-                # when the sensor is underexposed.  The boost is display-only —
-                # the actual measurement still uses the raw pixel values.
-                if y_mean > 0:
-                    boost = min(128.0 / y_mean, 8.0)  # cap at 8× to avoid noise blowup
-                else:
-                    boost = 1.0
-                display_frame = cv2.convertScaleAbs(frame, alpha=boost, beta=0)
-
                 collected = len(raw_values)
                 running_mean = sum(raw_values) / collected
-
                 is_dark = y_mean < _DARK_THRESHOLD
-                status_color = (0, 60, 255) if is_dark else (0, 220, 255)
+                status_color = (0, 100, 255) if is_dark else (0, 220, 255)
 
                 cv2.putText(
                     display_frame,
@@ -512,23 +526,23 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
                 )
                 cv2.putText(
                     display_frame,
-                    f"Raw estimate (K_cal=1.0): {running_mean:.4f} lux",
-                    (10, 62), _FONT, 0.58, (200, 200, 200), 1, cv2.LINE_AA,
+                    f"Y_mean: {y_mean:.1f}/255   Raw estimate: {running_mean:.4f} lux",
+                    (10, 62), _FONT, 0.52, (200, 200, 200), 1, cv2.LINE_AA,
                 )
-                if boost > 1.05:
+                if boost_label:
                     cv2.putText(
                         display_frame,
-                        f"[Display boosted {boost:.1f}x — sensor underexposed]",
+                        boost_label,
                         (10, 92), _FONT, 0.48, (0, 140, 255), 1, cv2.LINE_AA,
                     )
                 if is_dark:
                     cv2.putText(
                         display_frame,
-                        "Frames too dark! Increase CAMERA_LOCK_EXPOSURE_US",
-                        (10, 118), _FONT, 0.48, (0, 60, 255), 1, cv2.LINE_AA,
+                        "Underexposed — increase CAMERA_LOCK_EXPOSURE_US",
+                        (10, 118), _FONT, 0.48, (0, 80, 255), 1, cv2.LINE_AA,
                     )
 
-                cv2.imshow("SmartLight — Lux Calibration", display_frame)
+                cv2.imshow(win_name, display_frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     print("[Calibrate] Aborted by user.")
                     return 1
@@ -538,9 +552,7 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
         # Sampling done — freeze the last frame with a prompt overlay so the
         # user can still see the scene while typing in the terminal.
         if not headless and last_frame is not None:
-            avg_y = sum(y_means) / len(y_means) if y_means else 0.0
-            boost = min(128.0 / avg_y, 8.0) if avg_y > 0 else 1.0
-            final_preview = cv2.convertScaleAbs(last_frame, alpha=boost, beta=0)
+            final_preview, avg_y, boost_label = _make_display_frame(last_frame)
             raw_mean_display = sum(raw_values) / len(raw_values)
             cv2.putText(
                 final_preview,
@@ -562,13 +574,13 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
                 "then type the reading in the terminal.",
                 (10, 122), _FONT, 0.55, (50, 220, 255), 1, cv2.LINE_AA,
             )
-            if boost > 1.05:
+            if boost_label:
                 cv2.putText(
                     final_preview,
-                    f"[Display boosted {boost:.1f}x — sensor underexposed]",
+                    boost_label,
                     (10, 152), _FONT, 0.48, (0, 140, 255), 1, cv2.LINE_AA,
                 )
-            cv2.imshow("SmartLight — Lux Calibration", final_preview)
+            cv2.imshow(win_name, final_preview)
             cv2.waitKey(1)  # pump event loop once so the window repaints
 
     finally:
@@ -587,7 +599,7 @@ def run_calibrate_lux_mode(num_samples: int = 30) -> int:
         return 1
     finally:
         if not headless:
-            cv2.destroyWindow("SmartLight — Lux Calibration")
+            cv2.destroyWindow(win_name)
 
     if meter_lux <= 0:
         print("[Calibrate] ERROR — Lux reading must be greater than 0.")
