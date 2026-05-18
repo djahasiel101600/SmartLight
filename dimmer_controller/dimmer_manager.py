@@ -10,6 +10,7 @@ Responsibilities:
   display loop is never blocked by serial readline() latency.
 """
 
+import math
 import queue
 import threading
 import time
@@ -307,15 +308,20 @@ class DimmerManager:
         if raw_adc >= sorted_points[-1][0]:
             return sorted_points[-1][1]
 
-        # Linear interpolation between two nearest calibration points
+        # Log-linear interpolation: interpolate linearly in log(lux) space.
+        # LDR resistance follows a power-law (log-log) relationship with
+        # illuminance, so interpolating in log space fits the physical curve
+        # much better than linear interpolation, especially in the steep
+        # high-lux region where a few ADC units span hundreds of lux.
         for i in range(len(sorted_points) - 1):
             adc1, lux1 = sorted_points[i]
             adc2, lux2 = sorted_points[i + 1]
             if adc1 <= raw_adc <= adc2:
-                # Linear interpolation
                 t = (raw_adc - adc1) / (adc2 - adc1) if adc2 != adc1 else 0.0
-                lux = lux1 + t * (lux2 - lux1)
-                return lux
+                log_lux = math.log(max(lux1, 1e-6)) + t * (
+                    math.log(max(lux2, 1e-6)) - math.log(max(lux1, 1e-6))
+                )
+                return math.exp(log_lux)
 
         return 0.0
 
