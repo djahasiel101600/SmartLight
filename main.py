@@ -41,6 +41,7 @@ import config
 from ai.openai_client import OpenAIVisionClient
 from cache.frame_cache import FrameCache
 from camera.capture import CameraCapture
+from camera.lambertian_estimator import LambertianLuxEstimator
 from decision_engine.engine import DecisionEngine, Decision
 from applog.logger import StructuredLogger
 from dimmer_controller.dimmer_manager import DimmerManager
@@ -291,6 +292,7 @@ def run(headless: bool = config.HEADLESS) -> None:
     smoother = ActivitySmoother()
     api_worker = _AsyncAPIWorker(ai_client)
     dimmer = DimmerManager()
+    lux_estimator = LambertianLuxEstimator()
 
     try:
         camera = CameraCapture()
@@ -359,11 +361,9 @@ def run(headless: bool = config.HEADLESS) -> None:
             )
 
             # 6. Dimmer — lux-based closed-loop control
-            # Use photoresistor if enabled, otherwise fall back to camera lux estimate
-            if config.PHOTORESISTOR_ENABLED:
-                _lux = dimmer.poll_photoresistor()
-            else:
-                _lux = _estimate_lux(frame)
+            # Estimate ambient lux from the camera frame using the Lambertian
+            # Reflectance model (E = π × K_cal × Y_linear / (t_s × g × ρ)).
+            _lux = lux_estimator.estimate(frame)
             dimmer.update(stable_activity, _lux)
             dimmer.keepalive()
 
@@ -409,6 +409,79 @@ def run(headless: bool = config.HEADLESS) -> None:
         if not headless:
             cv2.destroyAllWindows()
         logger.log_shutdown()
+
+
+def run_calibrate_lux_mode(num_samples: int = 30) -> int:
+    """
+    Interactive Lambertian calibration wizard.
+
+    1. Opens the camera (same settings as the live run).
+    2. Discards warmup frames.
+    3. Captures *num_samples* frames and averages the raw estimate (K_cal = 1.0).
+    4. Prompts the user for their lux meter reading.
+    5. Computes and prints the K_cal value to set in config.py.
+
+    Returns a process exit code (0 = success, 1 = error).
+    """
+    print("\n[Calibrate] ===== Lambertian Lux Calibration Wizard =====")
+    print(f"[Calibrate] CAMERA_LOCK_ENABLED = {getattr(config, 'CAMERA_LOCK_ENABLED', False)}")
+    if not getattr(config, "CAMERA_LOCK_ENABLED", False):
+        print(
+            "[Calibrate] WARNING — CAMERA_LOCK_ENABLED is False.  Set it to True in "
+            "config.py before calibrating, otherwise the estimate will be unreliable."
+        )
+
+    estimator = LambertianLuxEstimator()
+
+    try:
+        camera = CameraCapture()
+        camera.start()
+    except RuntimeError as exc:
+        print(f"[Calibrate] ERROR — Could not open camera: {exc}")
+        return 1
+
+    print(f"[Calibrate] Camera open. Capturing {num_samples} sample frames …")
+
+    raw_values: list[float] = []
+    try:
+        attempts = 0
+        while len(raw_values) < num_samples:
+            frame = camera.read_frame()
+            attempts += 1
+            if frame is None:
+                if attempts > num_samples * 3:
+                    print("[Calibrate] ERROR — Too many empty frames. Check camera.")
+                    return 1
+                time.sleep(0.05)
+                continue
+            raw_values.append(estimator.estimate_raw(frame))
+            time.sleep(0.05)  # ~20 fps sampling
+    finally:
+        camera.stop()
+
+    raw_mean = sum(raw_values) / len(raw_values)
+    print(f"[Calibrate] Raw estimate (K_cal=1.0): {raw_mean:.4f} lux")
+    print("[Calibrate] -----------------------------------------------")
+    print("[Calibrate] Point your lux meter at the scene and note the reading.")
+
+    try:
+        meter_str = input("[Calibrate] Enter lux meter reading: ").strip()
+        meter_lux = float(meter_str)
+    except (ValueError, EOFError):
+        print("[Calibrate] ERROR — Invalid input. Aborted.")
+        return 1
+
+    if meter_lux <= 0:
+        print("[Calibrate] ERROR — Lux reading must be greater than 0.")
+        return 1
+
+    k_cal = meter_lux / raw_mean
+    print("[Calibrate] =======================================")
+    print(f"[Calibrate] Computed K_cal = {k_cal:.6f}")
+    print("[Calibrate] Set this in config.py:")
+    print(f"[Calibrate]   LUX_LAMBERTIAN_K_CAL: float = {k_cal:.6f}")
+    print("[Calibrate] =======================================")
+    return 0
 
 
 def run_test_mode(
@@ -493,6 +566,14 @@ if __name__ == "__main__":
     )
     test_group = parser.add_mutually_exclusive_group()
     test_group.add_argument(
+        "--calibrate-lux",
+        action="store_true",
+        help=(
+            "Run the Lambertian lux calibration wizard. Opens the camera, captures frames, "
+            "then prompts for a real lux meter reading to compute LUX_LAMBERTIAN_K_CAL."
+        ),
+    )
+    test_group.add_argument(
         "--test-dimm",
         "--test-dim",
         dest="test_dimm",
@@ -523,6 +604,13 @@ if __name__ == "__main__":
             "Closed-loop seek: adjust dimmer brightness until the photoresistor reads ADC (0–1023). "
             "Add --test-seconds to cap the search time; after settling it holds and keeps printing."
         ),
+    )
+    parser.add_argument(
+        "--calibrate-samples",
+        type=int,
+        default=30,
+        metavar="N",
+        help="Number of frames to average during --calibrate-lux (default: 30).",
     )
     parser.add_argument(
         "--test-seconds",
@@ -561,6 +649,9 @@ if __name__ == "__main__":
 
     if args.interactive and args.test_raw is None:
         parser.error("--interactive only applies to --test-raw.")
+
+    if getattr(args, "calibrate_lux", False):
+        sys.exit(run_calibrate_lux_mode(num_samples=args.calibrate_samples))
 
     if args.test_dimm or args.test_full_brightness \
             or args.test_lux is not None or args.test_raw is not None:

@@ -28,8 +28,8 @@ HEADLESS: bool = False         # Set True on Raspberry Pi (no display)
 # CAMERA_LOCK_EV adds brightness bias on top of exposure logic (where supported). Positive EV pushes brighter, negative EV darker. In measurement workflows, EV is usually kept at 0.0 to avoid hidden bias.
 # In practice: exposure + gain/ISO set the sensor’s raw brightness response, AWB/EV can add processing-side variation, and locking all of them trades visual adaptability for stable, comparable lux readings.
 
-CAMERA_LOCK_ENABLED: bool = False
-CAMERA_LOCK_EXPOSURE_US: int = 33000    # Exposure time in microseconds (increased for daylight)
+CAMERA_LOCK_ENABLED: bool = True
+CAMERA_LOCK_EXPOSURE_US: int = 1000    # Exposure time in microseconds (increased for daylight)
 CAMERA_LOCK_ANALOG_GAIN: float = 3.0    # Picamera2 AnalogueGain target (increased for brightness)
 CAMERA_LOCK_ISO: int = 300             # Best-effort fallback for backends supporting ISO
 CAMERA_LOCK_AWB_ENABLED: bool = False   # False keeps color processing stable for lux trends
@@ -106,7 +106,10 @@ DIMMER_TEST_DWELL_SECONDS: float = 0.4
 # The Arduino AREF pin must be tied to the same 3.3 V rail, and the firmware
 # calls analogReference(EXTERNAL) so the ADC full-scale (1023) = 3.3 V.
 # The Arduino responds to "PHOTOLUX?" command with raw ADC reading (0-1023).
-PHOTORESISTOR_ENABLED: bool = True
+# Photoresistor lux sensing is DISABLED — lux is now estimated from the camera
+# using the Lambertian Reflectance model (see LUX_LAMBERTIAN_* settings below).
+# Set back to True only if you want to revert to hardware ADC polling.
+PHOTORESISTOR_ENABLED: bool = False
 PHOTORESISTOR_POLL_INTERVAL: float = .5  # Seconds between ADC polls
 PHOTORESISTOR_SMOOTHING_ALPHA: float = 0.15
 # EMA smoothing factor for lux readings (0.01 = very smooth/slow, 1.0 = no smoothing/raw).
@@ -152,6 +155,35 @@ PHOTORESISTOR_CALIBRATION_POINTS: dict = {
     115:19,
     618:1018
 }
+
+# ---------------------------------------------------------------------------
+# Lambertian Reflectance Lux Estimator
+# ---------------------------------------------------------------------------
+# Physics-based lux estimation from camera frames using the Lambertian model:
+#   E_lux = π × K_cal × Y_linear / (exposure_s × gain × ρ)
+# where Y_linear is the gamma-decoded mean luminance of the frame.
+#
+# CAMERA_LOCK_ENABLED must be True so the exposure and gain are fixed and
+# known; auto-exposure silently changes both per-frame, corrupting estimates.
+#
+# Calibration workflow:
+#   1. Run:  python main.py --calibrate-lux
+#   2. Point camera at the scene, enter your lux meter reading when prompted.
+#   3. Copy the printed K_cal value into LUX_LAMBERTIAN_K_CAL below.
+# ---------------------------------------------------------------------------
+
+# Surface reflectance ρ — fraction of incident light reflected by the scene.
+# 0.50 is a reasonable average for indoor rooms with mixed surfaces/furniture.
+# Use 0.18 if working against an 18% gray reference card.
+LUX_LAMBERTIAN_REFLECTANCE: float = 0.50
+
+# sRGB / ISP gamma exponent used to decode pixel values to linear light.
+# Standard cameras apply gamma ≈ 2.2 before writing JPEG/BGR frames.
+LUX_LAMBERTIAN_GAMMA: float = 2.2
+
+# Camera calibration constant.  Default 1.0 gives an uncalibrated relative
+# estimate.  Run --calibrate-lux once and replace this with the printed value.
+LUX_LAMBERTIAN_K_CAL: float = 1.0
 
 # ---------------------------------------------------------------------------
 # IES-Based Lux Control (replaces fixed DIMMER_BRIGHTNESS)
